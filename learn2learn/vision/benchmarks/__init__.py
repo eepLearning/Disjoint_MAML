@@ -18,6 +18,9 @@ from .tiered_imagenet_benchmark import tiered_imagenet_tasksets
 from .fc100_benchmark import fc100_tasksets
 from .cifarfs_benchmark import cifarfs_tasksets
 
+from torchvision import transforms
+from PIL.Image import LANCZOS
+
 
 __all__ = ['list_tasksets', 'get_tasksets']
 
@@ -58,6 +61,8 @@ def get_tasksets(
     test_ways=5,
     test_samples=10,
     num_tasks=-1,
+    evaluation_tasks = -1,
+    is_disjoint = None,
     root='~/data',
     device=None,
     **kwargs,
@@ -118,11 +123,97 @@ def get_tasksets(
     validation_tasks = l2l.data.TaskDataset(
         dataset=validation_dataset,
         task_transforms=validation_transforms,
-        num_tasks=num_tasks,
+        num_tasks=evaluation_tasks ,
     )
     test_tasks = l2l.data.TaskDataset(
         dataset=test_dataset,
         task_transforms=test_transforms,
+        num_tasks=evaluation_tasks ,
+    )
+    if is_disjoint == None:
+        return BenchmarkTasksets(train_tasks, validation_tasks, test_tasks),None
+    else:
+        '''굳이
+        data_transforms = transforms.Compose([
+            transforms.Resize(28, interpolation=LANCZOS),
+            transforms.ToTensor(),
+            lambda x: 1.0 - x,
+        ])
+        omniglot = l2l.vision.datasets.FullOmniglot(
+            root=root,
+            transform=data_transforms,
+            download=True,
+        )
+        dataset = l2l.data.MetaDataset(omniglot)'''
+        dataset = train_dataset
+        print("disjount client sampling>>>>>>>")
+        client = []
+        for pool in is_disjoint:
+            custom_transforms = [
+               l2l.data.transforms.FusedNWaysKShots(dataset,
+                                                    n=train_ways,
+                                                    k=train_samples,
+                                                    filter_labels=pool),
+               l2l.data.transforms.LoadData(dataset),
+               l2l.data.transforms.RemapLabels(dataset),
+               l2l.data.transforms.ConsecutiveLabels(dataset),
+               l2l.vision.transforms.RandomClassRotation(dataset, [0.0, 90.0, 180.0, 270.0])
+            ]
+            custom_tasks = l2l.data.TaskDataset(
+               dataset=train_dataset,
+               task_transforms=custom_transforms,
+               num_tasks=num_tasks,
+            )
+            client.append(custom_tasks)
+        print("Done...!: ", len(client),"Clients Disjoint Complete")
+        print("Disjoint information: ")
+        for idx,pool in enumerate(is_disjoint):
+            print("Client ",idx," class_index: [",pool[0]," , ",pool[-1]," ]")
+        return  BenchmarkTasksets(train_tasks, validation_tasks, test_tasks),client
+       
+       
+       
+       
+
+def get_custom_tasksets(
+    name,custom_filter,
+    train_ways=5,
+    train_samples=10,
+    test_ways=5,
+    test_samples=10,
+    root='~/data',
+    device=None,
+    **kwargs,
+):
+ 
+    root = os.path.expanduser(root)
+
+    if device is not None:
+        raise NotImplementedError('Device other than None not implemented. (yet)')
+    datasets, transforms = _TASKSETS[name](train_ways=train_ways,
+                                           train_samples=train_samples,
+                                           test_ways=test_ways,
+                                           test_samples=test_samples,
+                                           root=root,
+                                           **kwargs)
+    custom_datasets = datsets[0]
+
+    custom_transforms = [
+        l2l.data.transforms.FusedNWaysKShots(dataset,
+                                             n=train_ways,
+                                             k=train_samples,
+                                             filter_labels=custom_filter),
+        l2l.data.transforms.LoadData(dataset),
+        l2l.data.transforms.RemapLabels(dataset),
+        l2l.data.transforms.ConsecutiveLabels(dataset),
+        l2l.vision.transforms.RandomClassRotation(dataset, [0.0, 90.0, 180.0, 270.0])
+    ]
+    
+    custom_tasks = l2l.data.TaskDataset(
+        dataset=custom_datasets,
+        task_transforms=custom_transforms,
         num_tasks=num_tasks,
     )
-    return BenchmarkTasksets(train_tasks, validation_tasks, test_tasks)
+
+
+    return custom_tasks

@@ -1,0 +1,3 @@
+import timeit
+
+nvidia-smi
