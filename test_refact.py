@@ -6,11 +6,13 @@ import learn2learn as l2l
 from torch import nn, optim
 import os
 print("pwd :",os.getcwd())
-
+from utils import evaluate
 ##일단 writer 꺼둔다
-
+import pickle
+import gzip
 import os
 #####args
+from collections import defaultdict
 
 def maml_exp(ways=5,
              shots=1,
@@ -23,7 +25,20 @@ def maml_exp(ways=5,
              GPU_NUM = 1,
              seed=42,
              file_name = "exp",
-             log_dir ="./log_dir/default" ):
+             log_dir ="./log_dir/default",
+             experiment = False):
+
+
+   #set experiment_config
+   
+   #valid 측정 할거냐 안할거냐, 할거면 몇 번에 한 번 할거냐
+   #test 측정 할거냐 안할거냐 , 할거면 몇 번에 한 번 할거냐
+   if experiment == False:
+      test_record = False
+   
+   else:
+      test_record = True
+   
    
    #set certain gpu id
   
@@ -32,13 +47,14 @@ def maml_exp(ways=5,
    print ('Current cuda device ', torch.cuda.current_device())
    
    
+   
    ######tesnsorboard
    #from torch.utils.tensorboard import SummaryWriter
    #log_dir = "./log_dir/0247"
    #writer = SummaryWriter(log_dir)
    
    ####csv
-   from collections import defaultdict
+
    result = defaultdict(list)
    
 
@@ -83,10 +99,7 @@ def maml_exp(ways=5,
    random.seed(seed)
    np.random.seed(seed)
    torch.manual_seed(seed)
-   
-   
-   
-   
+ 
    
    #set up disjoint
    train_class =1100
@@ -98,7 +111,7 @@ def maml_exp(ways=5,
          tmp  =  list(range(unit*i,unit*(i+1)))
          disjoint_setting.append(tmp)
    else:
-      disjoint_setting = None
+      disjoint_setting = []
    
    
    # Load train/validation/test tasksets using the benchmark interface
@@ -112,21 +125,6 @@ def maml_exp(ways=5,
                                                  is_disjoint = disjoint_setting,
                                                root='~/data/task10000',
    )
-   
-   ###for checking fixed accuracy
-   '''
-   tasksets_test = l2l.vision.benchmarks.get_tasksets('omniglot',
-                                               train_ways=ways, #How many class
-                                               train_samples=2*shots, #왜 2를 곱하지?
-                                               test_ways=ways,
-                                               test_samples=2*shots,
-                                               num_tasks=10000,
-                                               root='~/data/task10000',
-   )
-   '''
-   
-   
-   
    
    # Create model
    model = l2l.vision.models.OmniglotCNN()
@@ -145,6 +143,16 @@ def maml_exp(ways=5,
    
    best_accuracy = 0
    
+   #meta_train
+   task_information = (tasksets, meta_batch_size, loss, adaptation_steps, shots, ways, device)
+   
+   #아 여기에 오류가 있엇다.(이거때문에 BASE가 저장이 안됨";)
+   if len(disjoint_setting) == 0:
+      #disjoint_setting = []
+      method = "Base"
+   else:
+      method = "Disjoint"
+
    for iteration in range(num_iterations):
      opt.zero_grad()
      meta_train_error = 0.0
@@ -157,7 +165,7 @@ def maml_exp(ways=5,
             #break
          # Compute meta-training loss
          learner = maml.clone()
-         if disjoint_setting == None:
+         if len(disjoint_setting) == 0:
             batch = tasksets.train.sample()
          else:
             batch = client[task].sample()
@@ -223,49 +231,24 @@ def maml_exp(ways=5,
         best_accuracy = (meta_valid_accuracy / meta_batch_size)
         best_learner = maml.clone()
         best_iteration = iteration
+     if test_record == True:
+        if iteration % 500 == 0:
+           test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(100, maml,task_information)
+           result["test(mean)"].append({'mean': test_accuracy_mean, 'std': test_accuracy_std, 'iteration': iteration,
+                                        'client': len(disjoint_setting), 'method': method})
+ 
+           
    
      # Average the accumulated gradients and optimize
      for p in maml.parameters():
          p.grad.data.mul_(1.0 / meta_batch_size)
      opt.step() #여기서 maml 파라미터 업데이트가 일어난다.
-   
-   test_error = []
-   test_accuracy = []
-   test_iteration = 100
-   for i in range(test_iteration):
-   
-      meta_test_error = 0.0
-      meta_test_accuracy = 0.0
-   
-      for task in range(meta_batch_size):
-        # Compute meta-testing loss
-        learner = maml.clone()
-        batch = tasksets.test.sample()
-       # print("batch",len(batch))
-        evaluation_error, evaluation_accuracy = fast_adapt(batch,
-                                                            learner,
-                                                            loss,
-                                                            adaptation_steps,
-                                                            shots,
-                                                            ways,
-                                                            device)
-        meta_test_error += evaluation_error.item()
-        meta_test_accuracy += evaluation_accuracy.item()
-      test_error.append(meta_test_error / meta_batch_size)
-      test_accuracy.append(meta_test_accuracy / meta_batch_size)
-      #print('Meta Test Error', meta_test_error / meta_batch_size)
-      #print('Meta Test Accuracy', meta_test_accuracy / meta_batch_size)
-   test_error_mean = np.mean(test_error)
-   test_accuracy_mean = np.mean(test_accuracy)
-   test_error_std = np.std(test_error)
-   test_accuracy_std = np.std(test_accuracy)
+
    
    #writer.add_scalar('Test',{'Acc(Mean)':test_accuracy_mean, 'Acc(Mean)(std)':test_accuracy_std  } , 0)
-   if disjoint_setting == None:
-      disjoint_setting = []
-      method = "Base"
-   else:
-      method = "Disjoint"
+   test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(100,maml,task_information)
+   
+   
    result["test(mean)"].append({'mean':test_accuracy_mean,'std':test_accuracy_std,'iteration':iteration,
                                 'client':len(disjoint_setting),'method':method })
    
@@ -274,33 +257,9 @@ def maml_exp(ways=5,
    print('Meta Test Error(Mean)', test_error_mean)
    print('Meta Test Accuracy(Mean)', test_accuracy_mean)
    
-   for i in range(test_iteration):
-   
-      meta_test_error = 0.0
-      meta_test_accuracy = 0.0
-   
-      for task in range(meta_batch_size):
-        # Compute meta-testing loss
-        learner = best_learner.clone()
-        batch = tasksets.test.sample()
-       # print("batch",len(batch))
-        evaluation_error, evaluation_accuracy = fast_adapt(batch,
-                                                            learner,
-                                                            loss,
-                                                            adaptation_steps,
-                                                            shots,
-                                                            ways,
-                                                            device)
-        meta_test_error += evaluation_error.item()
-        meta_test_accuracy += evaluation_accuracy.item()
-      test_error.append(meta_test_error / meta_batch_size)
-      test_accuracy.append(meta_test_accuracy / meta_batch_size)
-      #print('Meta Test Error', meta_test_error / meta_batch_size)
-      #print('Meta Test Accuracy', meta_test_accuracy / meta_batch_size)
-   test_error_mean = np.mean(test_error)
-   test_accuracy_mean = np.mean(test_accuracy)
-   test_error_std = np.std(test_error)
-   test_accuracy_std = np.std(test_accuracy)
+   #for best model at valid dataset
+
+   test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(100, best_learner, task_information)
    print("Best Iteration on Validation : Iteration",best_iteration)
    print('Meta Test Error(Best)', test_error_mean)
    print('Meta Test Accuracy(Best)', test_accuracy_mean)
@@ -308,12 +267,12 @@ def maml_exp(ways=5,
    result["test(best)"].append({'mean':test_accuracy_mean,'std':test_accuracy_std,'iteration':iteration,
                                 'client':len(disjoint_setting),'method':method,'best_iteration':best_iteration,"best_accuracy":best_accuracy })
    #writer.close()
-   import pickle
-   import gzip
+
    if not os.path.exists(log_dir):
       os.makedirs(log_dir)
 
- 
+   terminate_time = timeit.default_timer() # 종료 시간 체크
+   result["time"] = (terminate_time - start_time)
    with gzip.open(log_dir+'/{}_{}_{}.pickle'.format(file_name,method,meta_batch_size), 'wb') as f:
       pickle.dump(result, f)
    
