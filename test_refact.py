@@ -26,13 +26,17 @@ def maml_exp(ways=5,
              seed=42,
              file_name = "exp",
              log_dir ="./log_dir/default",
-             experiment = False):
+             experiment = False,
+             scope = 1):
 
 
    #set experiment_config
    
-   #valid 측정 할거냐 안할거냐, 할거면 몇 번에 한 번 할거냐
+   #valid 측정 할거냐 안할거냐, 할거면 몇 번에 한 번 할거냐#이건 일단 빼지 말아보자
    #test 측정 할거냐 안할거냐 , 할거면 몇 번에 한 번 할거냐
+   ##experiment :
+   #1.Test record True / False
+   #2.scope
    if experiment == False:
       test_record = False
    
@@ -102,7 +106,9 @@ def maml_exp(ways=5,
  
    
    #set up disjoint
-   train_class =1100
+   train_class_origin = 1100
+   train_class =int(train_class_origin*scope)
+   print("Total Train Classes : ",train_class_origin,"===>",train_class,"(scope : ",scope,")")
    if is_disjoint == True:
       disjoint_setting = []
       client_number = meta_batch_size
@@ -121,9 +127,11 @@ def maml_exp(ways=5,
                                                test_ways=ways,
                                                test_samples=2*shots,
                                                num_tasks=-1,
-                                                 evaluation_tasks=10000,
-                                                 is_disjoint = disjoint_setting,
+                                               evaluation_tasks=10000,
+                                               is_disjoint = disjoint_setting,
                                                root='~/data/task10000',
+                                               scope = scope
+                                               
    )
    
    # Create model
@@ -273,7 +281,7 @@ def maml_exp(ways=5,
 
    terminate_time = timeit.default_timer() # 종료 시간 체크
    result["time"] = (terminate_time - start_time)
-   with gzip.open(log_dir+'/{}_{}_{}.pickle'.format(file_name,method,meta_batch_size), 'wb') as f:
+   with gzip.open(log_dir+'/{}_{}_{}_{}.pickle'.format(file_name,method,meta_batch_size,str(scope)), 'wb') as f:
       pickle.dump(result, f)
    
    terminate_time = timeit.default_timer()  # 종료 시간 체크

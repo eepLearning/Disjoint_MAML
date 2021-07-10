@@ -105,7 +105,7 @@ def get_tasksets(
         raise NotImplementedError('Device other than None not implemented. (yet)')
 
     # Load task-specific data and transforms
-    datasets, transforms = _TASKSETS[name](train_ways=train_ways,
+    datasets, transforms,classes,test_labels = _TASKSETS[name](train_ways=train_ways,
                                            train_samples=train_samples,
                                            test_ways=test_ways,
                                            test_samples=test_samples,
@@ -149,22 +149,31 @@ def get_tasksets(
         print("disjount client sampling>>>>>>>")
         client = []
         for pool in is_disjoint:
-            custom_transforms = [
+           filter_labels = [classes[i] for i in pool]
+           #filter_labels = pool
+           #train(disjoint)/test split check
+           intersection = len(list(set(filter_labels) & set(test_labels)))
+           if intersection == 0:
+              print("Train(Disjoint)/Test Split Perpect!")
+           else:
+              raise ('Invalid data_augmentation argument.')
+           
+           custom_transforms = [
                l2l.data.transforms.FusedNWaysKShots(dataset,
                                                     n=train_ways,
                                                     k=train_samples,
-                                                    filter_labels=pool),
+                                                    filter_labels=filter_labels ),
                l2l.data.transforms.LoadData(dataset),
                l2l.data.transforms.RemapLabels(dataset),
                l2l.data.transforms.ConsecutiveLabels(dataset),
                l2l.vision.transforms.RandomClassRotation(dataset, [0.0, 90.0, 180.0, 270.0])
             ]
-            custom_tasks = l2l.data.TaskDataset(
+           custom_tasks = l2l.data.TaskDataset(
                dataset=train_dataset,
                task_transforms=custom_transforms,
                num_tasks=num_tasks,
             )
-            client.append(custom_tasks)
+           client.append(custom_tasks)
         print("Done...!: ", len(client),"Clients Disjoint Complete")
         print("Disjoint information: ")
         for idx,pool in enumerate(is_disjoint):
