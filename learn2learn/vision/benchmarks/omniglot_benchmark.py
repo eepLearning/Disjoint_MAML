@@ -54,7 +54,7 @@ def omniglot_tasksets(
         l2l.data.transforms.FusedNWaysKShots(dataset,
                                              n=test_ways,
                                              k=test_samples,
-                                             filter_labels=classes[int(scope*1100):int(scope*1200)]),
+                                             filter_labels=classes[1100:1200]),
         l2l.data.transforms.LoadData(dataset),
         l2l.data.transforms.RemapLabels(dataset),
         l2l.data.transforms.ConsecutiveLabels(dataset),
