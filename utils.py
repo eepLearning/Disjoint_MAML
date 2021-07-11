@@ -65,6 +65,6 @@ def evaluate(test_iteration,maml,task_information):
 	test_accuracy_mean = np.mean(test_accuracy)
 	test_error_std = np.std(test_error)
 	test_accuracy_std = np.std(test_accuracy)
-	print('Meta Test Error(Mean)', test_error_mean)
-	print('Meta Test Accuracy(Mean)', test_accuracy_mean)
+	print('Meta Test Error(Iteration Record)', test_error_mean)
+	print('Meta Test Accuracy(Iteration Record)', test_accuracy_mean)
 	return test_error_mean,test_error_std,test_accuracy_mean,test_accuracy_std
