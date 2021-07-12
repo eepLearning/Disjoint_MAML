@@ -43,22 +43,22 @@ def evaluate(test_iteration,maml,task_information):
 		meta_test_error = 0.0
 		meta_test_accuracy = 0.0
 		
-		for task in range(meta_batch_size):
-			# Compute meta-testing loss
-			learner = maml.clone()
-			batch = tasksets.test.sample()
-			# print("batch",len(batch))
-			evaluation_error, evaluation_accuracy = fast_adapt(batch,
-																				learner,
-																				loss,
-																				adaptation_steps,
-																				shots,
-																				ways,
-																				device)
-			meta_test_error += evaluation_error.item()
-			meta_test_accuracy += evaluation_accuracy.item()
-		test_error.append(meta_test_error / meta_batch_size)
-		test_accuracy.append(meta_test_accuracy / meta_batch_size)
+		
+		# Compute meta-testing loss
+		learner = maml.clone()
+		batch = tasksets.test.sample()
+		# print("batch",len(batch))
+		evaluation_error, evaluation_accuracy = fast_adapt(batch,
+																			learner,
+																			loss,
+																			adaptation_steps,
+																			shots,
+																			ways,
+																			device)
+		meta_test_error += evaluation_error.item()
+		meta_test_accuracy += evaluation_accuracy.item()
+		test_error.append(meta_test_error )
+		test_accuracy.append(meta_test_accuracy )
 	# print('Meta Test Error', meta_test_error / meta_batch_size)
 	# print('Meta Test Accuracy', meta_test_accuracy / meta_batch_size)
 	test_error_mean = np.mean(test_error)
