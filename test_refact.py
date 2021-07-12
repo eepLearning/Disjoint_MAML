@@ -47,7 +47,7 @@ def fast_adapt(batch, learner, loss, adaptation_steps, shots, ways, device):
    return valid_error, valid_accuracy
 
 #print("local 수정 이제 자동으로 안되나?")
-
+#
 def maml_exp(ways=5,
              shots=1,
              meta_lr=0.003,
