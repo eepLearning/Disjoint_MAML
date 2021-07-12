@@ -14,6 +14,8 @@ import os
 #####args
 from collections import defaultdict
 
+#print("local 수정 이제 자동으로 안되나?")
+
 def maml_exp(ways=5,
              shots=1,
              meta_lr=0.003,
@@ -235,15 +237,17 @@ def maml_exp(ways=5,
         print('Meta Train Accuracy', accuracy_train)
         print('Meta Valid Error', error_valid)
         print('Meta Valid Accuracy', accuracy_valid)
-     if (meta_valid_accuracy / meta_batch_size) > best_accuracy:
-        best_accuracy = (meta_valid_accuracy / meta_batch_size)
-        best_learner = maml.clone()
-        best_iteration = iteration
+     if iteration % 100 ==0:
+        valid_accuracy_best = (meta_valid_accuracy / meta_batch_size)
+        if (valid_accuracy_best  > best_accuracy) and (valid_accuracy_best <1):
+           best_accuracy = valid_accuracy_best
+           best_learner = maml.clone()
+           best_iteration = iteration
      if test_record == True:
-        if iteration % 500 == 0:
-           test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(100, maml,task_information)
+        if iteration % 1000 == 0:
+           test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000, maml,task_information)
            result["test(mean)"].append({'mean': test_accuracy_mean, 'std': test_accuracy_std, 'iteration': iteration,
-                                        'client': len(disjoint_setting), 'method': method})
+                                        'client': meta_batch_size, 'method': method})
  
            
    
@@ -254,26 +258,27 @@ def maml_exp(ways=5,
 
    
    #writer.add_scalar('Test',{'Acc(Mean)':test_accuracy_mean, 'Acc(Mean)(std)':test_accuracy_std  } , 0)
-   test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(100,maml,task_information)
+   #final_acc
+   test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000,maml,task_information)
    
    
    result["test(mean)"].append({'mean':test_accuracy_mean,'std':test_accuracy_std,'iteration':iteration,
-                                'client':len(disjoint_setting),'method':method })
+                                'client':meta_batch_size,'method':method })
    
    print('\n')
-   print(method," : Client ",len(disjoint_setting))
+   print(method," : Client ",meta_batch_size)
    print('Meta Test Error(Mean)', test_error_mean)
    print('Meta Test Accuracy(Mean)', test_accuracy_mean)
    
    #for best model at valid dataset
 
-   test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(100, best_learner, task_information)
+   test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000, best_learner, task_information)
    print("Best Iteration on Validation : Iteration",best_iteration)
    print('Meta Test Error(Best)', test_error_mean)
    print('Meta Test Accuracy(Best)', test_accuracy_mean)
    #writer.add_scalars('Test',{'Acc(Best)':test_accuracy_mean, 'Acc(Best)(std)':test_accuracy_std  } , 0)
    result["test(best)"].append({'mean':test_accuracy_mean,'std':test_accuracy_std,'iteration':iteration,
-                                'client':len(disjoint_setting),'method':method,'best_iteration':best_iteration,"best_accuracy":best_accuracy })
+                                'client':meta_batch_size,'method':method,'best_iteration':best_iteration,"best_accuracy":best_accuracy })
    #writer.close()
 
    if not os.path.exists(log_dir):
