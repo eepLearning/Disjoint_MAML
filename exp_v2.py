@@ -10,6 +10,8 @@ from test_refact import maml_exp
 import sys
 import argparse
 
+
+
 def get_arguments():
 	def str2bool(vv):
 		l = []
@@ -32,6 +34,10 @@ def get_arguments():
 	parser.add_argument('--experiment', help='default) False if True: Test Performance will be recorded', default=False, dest='experiment', type=str)
 	parser.add_argument('--scope', help='default) 1 , to minimize total train class to half then set scope to 0.5 ', default=1, dest='scope', type=float)
 	parser.add_argument('--gpu_number', help='default) 1', default=1, dest='GPU_NUM',type = int)
+	parser.add_argument('--case_control', help='default) False',default= False , dest='case_control',type = str)
+
+	
+	
 	#그냥 type bool로 하면 파서가 못 읽는 거 같다.
 
 	client_grid = parser.parse_args().client_grid
@@ -45,11 +51,14 @@ def get_arguments():
 	#print(experiment)
 	#experiment =str2bool(experimnet)[0]
 	GPU_NUM= parser.parse_args().GPU_NUM
-	
-	return client_grid, num_iterations, is_disjoint_option, file_name, experiment, scope, GPU_NUM
+	#add case_control
+	case_control = dict()
+	case_control["control"] = bool(parser.parse_args().case_control)
+	case_control["case"] = [10,20,30]
+	return client_grid, num_iterations, is_disjoint_option, file_name, experiment, scope, GPU_NUM,case_control
 
 
-def main(client_grid,num_iterations,is_disjoint_option,file_name,experiment,scope, GPU_NUM  ):
+def main(client_grid,num_iterations,is_disjoint_option,file_name,experiment,scope, GPU_NUM,**case_control  ):
 	print("client_grid :",client_grid)
 	print("num_iterations :",num_iterations)
 	print("is_disjoint_option :",is_disjoint_option)
@@ -57,6 +66,18 @@ def main(client_grid,num_iterations,is_disjoint_option,file_name,experiment,scop
 	print("experiment :",experiment)
 	print("scope :",scope)
 	print("GPU_NUM :",GPU_NUM)
+	print("case_control :",case_control["control"])
+	if case_control["control"] == True:
+		print("1 Disjoint pool have : ",case_control["case"])
+		total_train_class =1100
+		control_break_condition = 5
+		total_train_class = int(total_train_class * scope)
+		if total_train_class/max(case_control["case"]) < control_break_condition:
+			raise ('Invalid Numbers of Classes Assign to Pool')
+		client_grid = [int(total_train_class  / classes ) for classes in case_control["case"]]
+		print("(Revised) client_grid :", client_grid)
+		
+		
 	import timeit
 	idx = 0
 	st = timeit.default_timer()  # 시작 시간 체크
@@ -87,6 +108,6 @@ def main(client_grid,num_iterations,is_disjoint_option,file_name,experiment,scop
 	
 
 if __name__ == '__main__':
-	client_grid, num_iterations, is_disjoint_option, file_name, experiment,scope, GPU_NUM = get_arguments()
+	client_grid, num_iterations, is_disjoint_option, file_name, experiment,scope, GPU_NUM, case_control = get_arguments()
 	
-	main(client_grid, num_iterations, is_disjoint_option, file_name, experiment,scope, GPU_NUM)
+	main(client_grid, num_iterations, is_disjoint_option, file_name, experiment,scope, GPU_NUM,**case_control)
