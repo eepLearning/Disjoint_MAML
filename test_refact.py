@@ -47,7 +47,7 @@ def fast_adapt(batch, learner, loss, adaptation_steps, shots, ways, device):
    return valid_error, valid_accuracy
 
 #print("local 수정 이제 자동으로 안되나?")
-#
+
 def maml_exp(ways=5,
              shots=1,
              meta_lr=0.003,
@@ -61,7 +61,10 @@ def maml_exp(ways=5,
              file_name = "exp",
              log_dir ="./log_dir/default",
              experiment = False,
-             scope = 1):
+             scope = 1,
+             data = "omniglot",
+             fix_batch_size = True,
+             fraction = 1):
 
 
    #set experiment_config
@@ -105,9 +108,14 @@ def maml_exp(ways=5,
    np.random.seed(seed)
    torch.manual_seed(seed)
  
-   
+   #in case of mini-imagent :
+   #The dataset is divided in 3 splits of
+   #64 training, 16 validation, and 20 testing classes
    #set up disjoint
-   train_class_origin = 1100
+   if data == "omniglot":
+      train_class_origin = 1100
+   else:
+      train_class_origin = 64
    train_class =int(train_class_origin*scope)
    print("Total Train Classes : ",train_class_origin,"===>",train_class,"(scope : ",scope,")")
    if is_disjoint == True:
@@ -117,12 +125,25 @@ def maml_exp(ways=5,
       for i in range(client_number):
          tmp  =  list(range(unit*i,unit*(i+1)))
          disjoint_setting.append(tmp)
+      #### ~exp-v3: client = 4, disjoint_setting = [ [1,2,3] , [4,5,6] , [7,8,9], [10,11,12] ]
+      #### from exp-v4: client = 4 but batch_size = 32 so sample 32 clinet in 4 client randomly
+      ##exp_v4 / test_refact_v4 revise
+      ###Disjoint(NEW)
+      if fix_batch_size:
+
+         meta_batch_size_client = meta_batch_size
+         meta_batch_size = 32
    else:
+      if fix_batch_size:
+
+         meta_batch_size_client = meta_batch_size
+         meta_batch_size = 32
+         
       disjoint_setting = []
    
    
    # Load train/validation/test tasksets using the benchmark interface
-   tasksets,client = l2l.vision.benchmarks.get_tasksets('omniglot',
+   tasksets,client = l2l.vision.benchmarks.get_tasksets(data,
                                                train_ways=ways, #How many class
                                                train_samples=2*shots, #왜 2를 곱하지?
                                                test_ways=ways,
@@ -130,14 +151,23 @@ def maml_exp(ways=5,
                                                num_tasks=-1,
                                                evaluation_tasks=10000,
                                                is_disjoint = disjoint_setting,
-                                               root='~/data/task10000',
+                                               root='~/data/{}_task10000'.format(data),
                                                scope = scope
                                                
    )
+   client_original = client
+
+
+   ###exp_v4
+   
+   
    
    # Create model
-   model = l2l.vision.models.OmniglotCNN()
-   
+   if data == "omniglot":
+      model = l2l.vision.models.OmniglotCNN()
+   elif data == "mini-imagenet":
+      model = l2l.vision.models.MiniImagenetCNN(ways)
+
    #GPU Parallel
    #model = torch.nn.DataParallel(model)
    model.to(device)
@@ -145,12 +175,11 @@ def maml_exp(ways=5,
    
    
    maml = l2l.algorithms.MAML(model, lr=fast_lr, first_order=False)
-   para = maml.parameters()
-   
    opt = optim.Adam(maml.parameters(), meta_lr)
    loss = nn.CrossEntropyLoss(reduction='mean')
    
    best_accuracy = 0
+   best_iteration = 0
    
    #meta_train
    task_information = (tasksets, meta_batch_size, loss, adaptation_steps, shots, ways, device)
@@ -161,13 +190,41 @@ def maml_exp(ways=5,
       method = "Base"
    else:
       method = "Disjoint"
+   client_list = range(len(disjoint_setting))
+   client_list = list(client_list)
 
    for iteration in range(num_iterations):
+      
+      #nomal fraction and disjoint_setting
+      #iteration마다 다르게 sampling되도록 (문제는 , 지금 len(djisjoint) =! 32이고 그냥 client 수 라는거)
+
+      # disjoint setting  #의문: 근데 이 변수가 client랑 동일하게 적용될지는 모르겠다.
+      #근데 어차피 disjoint setting이 client 뽑을려고 만든 거니까 무시해도 괜찮지 않을까?
+     if (fix_batch_size) & (method != "Base"):
+        random.shuffle(client_list)
+        client_list_new = client_list[: int(len(client_list) * fraction)]
+        if fraction < 1:
+           print("Total Train Client : ", meta_batch_size_client, "===>", len(client_list_new), "(fraction : ", fraction,
+                 ")")
+           print("Client Index :", client_list_new)
+        #에러가 나면 여기서 난다.
+        #disjoint_setting_new = [disjoint_setting[random.choice(client_list_new)] for i in range(32)]
+        #disjoint_setting = disjoint_setting_new
+        
+        client_new = [client_original[random.choice(client_list_new)] for i in range(32)]
+        client = client_new
+      
+      
+      #@save time
+     if iteration ==0 :
+        iteration = iteration + 1
      opt.zero_grad()
      meta_train_error = 0.0
      meta_train_accuracy = 0.0
      meta_valid_error = 0.0
      meta_valid_accuracy = 0.0
+     
+     
      for task in range(meta_batch_size):
         
          #if task == 1:
@@ -236,15 +293,18 @@ def maml_exp(ways=5,
         print('Meta Train Accuracy', accuracy_train)
         print('Meta Valid Error', error_valid)
         print('Meta Valid Accuracy', accuracy_valid)
-     if iteration % 100 ==0:
-        valid_accuracy_best = (meta_valid_accuracy / meta_batch_size)
+     if iteration % 1000 ==0:
+        valid_error_mean, valid_error_std, valid_accuracy_mean, valid_accuracy_std = evaluate(1000,
+                                                                                          maml, task_information)
+        valid_accuracy_best = valid_accuracy_mean
         if (valid_accuracy_best  > best_accuracy) and (valid_accuracy_best <1):
            best_accuracy = valid_accuracy_best
            best_learner = maml.clone()
            best_iteration = iteration
      if test_record == True:
         if iteration % 1000 == 0:
-           test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000, maml,task_information)
+           test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000,
+                                                                                             maml,task_information)
            result["test(mean)"].append({'mean': test_accuracy_mean, 'std': test_accuracy_std, 'iteration': iteration,
                                         'client': meta_batch_size, 'method': method})
  
@@ -258,9 +318,10 @@ def maml_exp(ways=5,
    
    #writer.add_scalar('Test',{'Acc(Mean)':test_accuracy_mean, 'Acc(Mean)(std)':test_accuracy_std  } , 0)
    #final_acc
-   test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000,maml,task_information)
    
-   
+   #@save time
+   test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000,
+                                                                                     maml,task_information)
    result["test(mean)"].append({'mean':test_accuracy_mean,'std':test_accuracy_std,'iteration':iteration,
                                 'client':meta_batch_size,'method':method })
    
@@ -270,14 +331,22 @@ def maml_exp(ways=5,
    print('Meta Test Accuracy(Mean)', test_accuracy_mean)
    
    #for best model at valid dataset
-
-   test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000, best_learner, task_information)
+   
+   #@save time
+   #for there is no best model yet
+   try:
+      test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000,
+                                                                              best_learner, task_information)
+   except:
+      test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000,
+                                                                              maml, task_information)
    print("Best Iteration on Validation : Iteration",best_iteration)
    print('Meta Test Error(Best)', test_error_mean)
    print('Meta Test Accuracy(Best)', test_accuracy_mean)
    #writer.add_scalars('Test',{'Acc(Best)':test_accuracy_mean, 'Acc(Best)(std)':test_accuracy_std  } , 0)
    result["test(best)"].append({'mean':test_accuracy_mean,'std':test_accuracy_std,'iteration':iteration,
-                                'client':meta_batch_size,'method':method,'best_iteration':best_iteration,"best_accuracy":best_accuracy })
+                               'client':meta_batch_size,'method':method,'best_iteration':best_iteration,"best_accuracy":best_accuracy })
+   
    #writer.close()
 
    if not os.path.exists(log_dir):
@@ -285,7 +354,7 @@ def maml_exp(ways=5,
 
    terminate_time = timeit.default_timer() # 종료 시간 체크
    result["time"] = (terminate_time - start_time)
-   with gzip.open(log_dir+'/{}_{}_{}_{}.pickle'.format(file_name,method,meta_batch_size,str(scope)), 'wb') as f:
+   with gzip.open(log_dir+'/{}_{}_client{}_fraction{}_{}.pickle'.format(file_name,method,meta_batch_size_client,str(fraction),data), 'wb') as f:
       pickle.dump(result, f)
    
    terminate_time = timeit.default_timer()  # 종료 시간 체크

@@ -73,10 +73,12 @@ class MiniImagenet(data.Dataset):
                  transform=None,
                  target_transform=None,
                  download=False):
-        super(MiniImagenet, self).__init__()
         self.root = os.path.expanduser(root)
+        super(MiniImagenet, self).__init__()
+    
         if not os.path.exists(self.root):
             os.mkdir(self.root)
+           
         self.transform = transform
         self.target_transform = target_transform
         self.mode = mode

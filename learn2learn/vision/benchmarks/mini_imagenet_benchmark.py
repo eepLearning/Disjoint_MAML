@@ -13,7 +13,7 @@ def mini_imagenet_tasksets(
     test_ways=5,
     test_samples=10,
     root='~/data',
-    data_augmentation=None,
+    data_augmentation=None, #해당 부분이 없다.
     **kwargs,
 ):
     """Tasksets for mini-ImageNet benchmarks."""
@@ -63,8 +63,11 @@ def mini_imagenet_tasksets(
         download=True,
     )
     train_dataset = l2l.data.MetaDataset(train_dataset)
+    train_classes = train_dataset.labels
     valid_dataset = l2l.data.MetaDataset(valid_dataset)
     test_dataset = l2l.data.MetaDataset(test_dataset)
+    test_labels = test_dataset.labels
+    test_labels = [t + len(train_dataset.labels) + len(valid_dataset.labels) for t in test_labels ]
 
     train_transforms = [
         NWays(train_dataset, train_ways),
@@ -90,4 +93,4 @@ def mini_imagenet_tasksets(
 
     _datasets = (train_dataset, valid_dataset, test_dataset)
     _transforms = (train_transforms, valid_transforms, test_transforms)
-    return _datasets, _transforms
+    return _datasets, _transforms,train_classes,test_labels

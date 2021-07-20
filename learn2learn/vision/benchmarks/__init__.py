@@ -20,6 +20,7 @@ from .cifarfs_benchmark import cifarfs_tasksets
 
 from torchvision import transforms
 from PIL.Image import LANCZOS
+from learn2learn.data.transforms import NWays, KShots, LoadData, RemapLabels, ConsecutiveLabels, FilterLabels
 
 
 __all__ = ['list_tasksets', 'get_tasksets']
@@ -133,54 +134,84 @@ def get_tasksets(
     if is_disjoint == None:
         return BenchmarkTasksets(train_tasks, validation_tasks, test_tasks),None
     else:
-        '''굳이
-        data_transforms = transforms.Compose([
-            transforms.Resize(28, interpolation=LANCZOS),
-            transforms.ToTensor(),
-            lambda x: 1.0 - x,
-        ])
-        omniglot = l2l.vision.datasets.FullOmniglot(
-            root=root,
-            transform=data_transforms,
-            download=True,
-        )
-        dataset = l2l.data.MetaDataset(omniglot)'''
-        dataset = train_dataset
-        print("disjount client sampling>>>>>>>")
-        client = []
-        for pool in is_disjoint:
-           filter_labels = [classes[i] for i in pool]
-           #filter_labels = pool
-           #train(disjoint)/test split check
-           intersection = len(list(set(filter_labels) & set(test_labels)))
-           if intersection == 0:
-              print("Train(Disjoint)/Test Split Perpect!")
-           else:
-              raise ('Invalid data_augmentation argument.')
+        if name == "omniglot":
+           dataset = train_dataset
+           print("disjount client sampling>>>>>>>")
+           client = []
+           for pool in is_disjoint:
+              filter_labels = [classes[i] for i in pool]
+              #filter_labels = pool
+              #train(disjoint)/test split check
+              intersection = len(list(set(filter_labels) & set(test_labels)))
+              if intersection == 0:
+                 print("Train(Disjoint)/Test Split Perpect!")
+              else:
+                 raise ('Invalid data_augmentation argument.')
+              
+              custom_transforms = [
+                  l2l.data.transforms.FusedNWaysKShots(dataset,
+                                                       n=train_ways,
+                                                       k=train_samples,
+                                                       filter_labels=filter_labels ),
+                  l2l.data.transforms.LoadData(dataset),
+                  l2l.data.transforms.RemapLabels(dataset),
+                  l2l.data.transforms.ConsecutiveLabels(dataset),
+                  l2l.vision.transforms.RandomClassRotation(dataset, [0.0, 90.0, 180.0, 270.0])
+               ]
+              custom_tasks = l2l.data.TaskDataset(
+                  dataset=train_dataset,
+                  task_transforms=custom_transforms,
+                  num_tasks=num_tasks,
+               )
+              client.append(custom_tasks)
+           print("Done...!: ", len(client),"Clients Disjoint Complete")
+           print("Disjoint information: ")
+           for idx,pool in enumerate(is_disjoint):
+               print("Client ",idx," class_index: [",pool[0]," , ",pool[-1]," ]")
+           return  BenchmarkTasksets(train_tasks, validation_tasks, test_tasks),client
+       
+        elif name == "mini-imagenet" :
            
-           custom_transforms = [
-               l2l.data.transforms.FusedNWaysKShots(dataset,
-                                                    n=train_ways,
-                                                    k=train_samples,
-                                                    filter_labels=filter_labels ),
-               l2l.data.transforms.LoadData(dataset),
-               l2l.data.transforms.RemapLabels(dataset),
-               l2l.data.transforms.ConsecutiveLabels(dataset),
-               l2l.vision.transforms.RandomClassRotation(dataset, [0.0, 90.0, 180.0, 270.0])
-            ]
-           custom_tasks = l2l.data.TaskDataset(
-               dataset=train_dataset,
-               task_transforms=custom_transforms,
-               num_tasks=num_tasks,
-            )
-           client.append(custom_tasks)
-        print("Done...!: ", len(client),"Clients Disjoint Complete")
-        print("Disjoint information: ")
-        for idx,pool in enumerate(is_disjoint):
-            print("Client ",idx," class_index: [",pool[0]," , ",pool[-1]," ]")
-        return  BenchmarkTasksets(train_tasks, validation_tasks, test_tasks),client
-       
-       
+           print("disjount client sampling>>>>>>>")
+           client = []
+           for pool in is_disjoint:
+              #print("pool: ",)
+              filter_labels = [classes[i] for i in pool]
+              #print("filter_labels :",filter_labels)
+              #print("test_labels :", test_labels)
+              # filter_labels = pool
+              # train(disjoint)/test split check
+              intersection = len(list(set(filter_labels) & set(test_labels)))
+              #print("interection",intersection)
+              if intersection == 0:
+                 print("Train(Disjoint)/Test Split Perpect!")
+              else:
+                 raise ('Invalid data_data split argument.')
+              dataset = l2l.data.FilteredMetaDataset(train_dataset, filter_labels)
+              #이 부분을 train_dataset에서 dataset으로 바꿨는데
+              #어떻게 될려나?
+
+              custom_transforms = [
+                 NWays(dataset, train_ways),
+                 KShots(dataset, train_samples),
+                 LoadData(dataset),
+                 RemapLabels(dataset),
+                 ConsecutiveLabels(dataset),
+              ]
+              custom_tasks = l2l.data.TaskDataset(
+                 dataset=dataset,
+                 task_transforms=custom_transforms,
+                 num_tasks=num_tasks,
+              )
+              client.append(custom_tasks)
+           print("Done...!: ", len(client), "Clients Disjoint Complete")
+           print("Disjoint information: ")
+           for idx, pool in enumerate(is_disjoint):
+              print("Client ", idx, " class_index: [", pool[0], " , ", pool[-1], " ]")
+           return BenchmarkTasksets(train_tasks, validation_tasks, test_tasks), client
+           
+           
+           
        
        
 
