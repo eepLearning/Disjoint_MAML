@@ -1,0 +1,177 @@
+import random
+import numpy as np
+import torch
+import learn2learn as l2l
+
+from torch import nn, optim
+import os
+import warnings
+from test_refact_fp import maml_exp
+
+import sys
+import argparse
+
+#오류 확인용(디버깅)
+import logging
+
+
+
+def str2bool(vv):
+	if isinstance(vv, list):
+		l = []
+		for v in vv:
+			if isinstance(v, bool):
+				l.append(v)
+			if v.lower() in ('yes', 'true', 't', 'y', '1'):
+				l.append(True)
+			elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+				l.append(False)
+			else:
+				raise argparse.ArgumentTypeError('Boolean value expected.')
+		return l
+	else:
+		if isinstance(vv, bool):
+			return vv
+		if vv.lower() in ('yes', 'true', 't', 'y', '1'):
+			return True
+		elif vv.lower() in ('no', 'false', 'f', 'n', '0'):
+			return False
+		else:
+			raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
+def get_arguments():
+	
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--client_grid', help='default) client_grid = [5,10,20,50,100]',
+							  nargs ="+", default = 2 , dest='client_grid',type = int)
+	parser.add_argument('--num_iterations', help='default) 10', default=10, dest='num_iterations',type = int)
+	parser.add_argument('--is_disjoint_option', help='default) [True,False]',
+							  nargs ="*",default= False ,dest='is_disjoint_option',type= str)
+	parser.add_argument('--file_name', help='default) "EXP_0" ', default="EXP_0", dest='file_name',type = str)
+	parser.add_argument('--experiment', help='default) False if True: Test Performance will be recorded',
+							  default=False, dest='experiment', type=str)
+	parser.add_argument('--scope', help='default) 1 , to minimize total train class to half then set scope to 0.5 ',
+							  default=1, dest='scope', type=float)
+	parser.add_argument('--gpu_number', help='default) 1', default=1, dest='GPU_NUM',type = int)
+	parser.add_argument('--dataset', help='default) omniglot ', default="omniglot", dest='dataset', type=str)
+	parser.add_argument('--fix_batch', help='default) False ', default=False, dest='fix_batch', type=str)
+	parser.add_argument('--fraction', help='default) 1 ',
+							  default=1, dest='fraction', type=float)
+	#####exp_v5
+	parser.add_argument('--way', help='default) 5',
+							 nargs="+", default=[5], dest='way', type=int)
+	parser.add_argument('--shot', help='default) 1',
+							 nargs="+", default=[1], dest='shot', type=int)
+	
+	
+	###exp: fake episode fp
+	parser.add_argument('--fp', help='default) fake episode 0(normal:none)',
+							  nargs="+", default=0, dest='fp', type=int)
+	
+	parser.add_argument('--case_control', help='default) False',default= False ,
+							  dest='case_control',type = str)
+
+	
+	
+	#그냥 type bool로 하면 파서가 못 읽는 거 같다.
+
+	client_grid = parser.parse_args().client_grid
+	num_iterations = parser.parse_args().num_iterations
+	is_disjoint_option= parser.parse_args().is_disjoint_option
+	is_disjoint_option = str2bool(is_disjoint_option)
+	#is_disjoint_option = [True , False] #아직 파서로 받는 거 해결못함. #해결됨
+	file_name= parser.parse_args().file_name
+	experiment= parser.parse_args().experiment
+	scope = parser.parse_args().scope
+	#print(experiment)
+	#experiment =str2bool(experimnet)[0]
+	GPU_NUM= parser.parse_args().GPU_NUM
+	#add case_control
+	case_control = dict()
+	case_control["control"] = str2bool(parser.parse_args().case_control)
+	case_control["case"] = [10,20,30]
+	dataset = parser.parse_args().dataset
+	fix_batch_size = str2bool(parser.parse_args().fix_batch)
+	fraction = parser.parse_args().fraction
+	###exp_v5
+	way = parser.parse_args().way
+	shot = parser.parse_args().shot
+	###exp_fp
+	fp = parser.parse_args().fp
+	return client_grid, num_iterations, is_disjoint_option, file_name, experiment, scope, GPU_NUM,dataset,fix_batch_size,fraction,way,shot,fp, case_control
+
+
+def main(client_grid,num_iterations,is_disjoint_option,file_name,experiment,scope, GPU_NUM, dataset,fix_batch_size,fraction,way,shot,fp, **case_control  ):
+	print("Dataset :", dataset)
+	print("{}-Way {}-Shot".format(way,shot))
+	print(f"fake_episode_experiment_metho_{fp}")
+	print("client_grid :",client_grid)
+	print("=====>"," fix_batch_size", fix_batch_size)
+	print("num_iterations :",num_iterations)
+	print("is_disjoint_option :",is_disjoint_option)
+	print("file_name :",file_name)
+	print("experiment :",experiment)
+	print("scope :",scope)
+	print("fraction :",fraction)
+	print("GPU_NUM :",GPU_NUM)
+	print("case_control :",case_control["control"])
+	if case_control["control"] == True:
+		print("1 Disjoint pool have : ",case_control["case"])
+		total_train_class =1100
+		control_break_condition = 5
+		total_train_class = int(total_train_class * scope)
+		if total_train_class/max(case_control["case"]) < control_break_condition:
+			raise ('Invalid Numbers of Classes Assign to Pool')
+		client_grid = [int(total_train_class  / classes ) for classes in case_control["case"]]
+		print("(Revised) client_grid :", client_grid)
+		
+		
+	import timeit
+	idx = 0
+	st = timeit.default_timer()  # 시작 시간 체크
+	log_dir = "./log_dir/" + file_name
+	for is_disjoint in is_disjoint_option:
+		for client in client_grid:
+			for ways in way:
+				for shots in shot:
+					for fake_episode_method in fp:
+						idx = idx + 1
+						print(">>>>>>>>>EXP :",idx,"Proceed ")
+						commend = f"python {sys.argv[0]} --client_grid  {client}  --num_iterations {num_iterations} --is_disjoint_option  {is_disjoint}  --file_name {file_name} --experiment {experiment}--scope {scope} --fix_batch {fix_batch_size} --fraction {fraction} --gpu_number {GPU_NUM} --ways {way} --shots {shot} --fp {fp} --case_control {case_control}"
+						
+						try:
+							maml_exp(ways=ways,
+									shots=shots,
+									meta_lr=0.003,
+									fast_lr=0.5,
+									meta_batch_size=client,
+									adaptation_steps=1,
+									num_iterations=num_iterations,
+									is_disjoint=is_disjoint,
+									GPU_NUM=GPU_NUM,
+									seed=42,
+									file_name=file_name,
+									log_dir=log_dir,
+									experiment=experiment,
+									scope = scope,
+									data = dataset,
+									fix_batch_size = fix_batch_size,
+									fraction = fraction,
+										fp = fake_episode_method)
+						except:
+							logging.warning()
+							warnings.warn(f"Exp didn;t work at all the /n {commend}")
+	
+							continue
+	
+	te = timeit.default_timer()  # 종료 시간 체크
+	print("%f초 걸렸습니다." % (te - st))
+	
+
+	
+
+if __name__ == '__main__':
+	client_grid, num_iterations, is_disjoint_option, file_name, experiment,scope, GPU_NUM, dataset,fix_batch_size,fraction,way,shot,fp, case_control = get_arguments()
+	
+	main(client_grid, num_iterations, is_disjoint_option, file_name, experiment,scope, GPU_NUM,dataset,fix_batch_size,fraction,way,shot,fp, **case_control)
