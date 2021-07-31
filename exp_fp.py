@@ -67,7 +67,7 @@ def get_arguments():
 	
 	###exp: fake episode fp
 	parser.add_argument('--fp', help='default) fake episode 0(normal:none)',
-							  nargs="+", default=0, dest='fp', type=int)
+							  default=0, dest='fp', type=int)
 	
 	parser.add_argument('--case_control', help='default) False',default= False ,
 							  dest='case_control',type = str)
@@ -135,35 +135,36 @@ def main(client_grid,num_iterations,is_disjoint_option,file_name,experiment,scop
 		for client in client_grid:
 			for ways in way:
 				for shots in shot:
-					for fake_episode_method in fp:
-						idx = idx + 1
-						print(">>>>>>>>>EXP :",idx,"Proceed ")
-						commend = f"python {sys.argv[0]} --client_grid  {client}  --num_iterations {num_iterations} --is_disjoint_option  {is_disjoint}  --file_name {file_name} --experiment {experiment}--scope {scope} --fix_batch {fix_batch_size} --fraction {fraction} --gpu_number {GPU_NUM} --ways {way} --shots {shot} --fp {fp} --case_control {case_control}"
-						
-						try:
-							maml_exp(ways=ways,
-									shots=shots,
-									meta_lr=0.003,
-									fast_lr=0.5,
-									meta_batch_size=client,
-									adaptation_steps=1,
-									num_iterations=num_iterations,
-									is_disjoint=is_disjoint,
-									GPU_NUM=GPU_NUM,
-									seed=42,
-									file_name=file_name,
-									log_dir=log_dir,
-									experiment=experiment,
-									scope = scope,
-									data = dataset,
-									fix_batch_size = fix_batch_size,
-									fraction = fraction,
-										fp = fake_episode_method)
-						except:
-							logging.warning()
-							warnings.warn(f"Exp didn;t work at all the /n {commend}")
-	
-							continue
+					#for fake_episode_method in fp:
+					idx = idx + 1
+					print(">>>>>>>>>EXP :",idx,"Proceed ")
+					commend = f"python {sys.argv[0]} --client_grid  {client}  --num_iterations {num_iterations} --is_disjoint_option  {is_disjoint}  --file_name {file_name} --experiment {experiment}--scope {scope} --fix_batch {fix_batch_size} --fraction {fraction} --gpu_number {GPU_NUM} --ways {way} --shots {shot} --fp {fp} --case_control {case_control}"
+					
+					try:
+						maml_exp(ways=ways,
+								shots=shots,
+								meta_lr=0.003,
+								fast_lr=0.5,
+								meta_batch_size=client,
+								adaptation_steps=1,
+								num_iterations=num_iterations,
+								is_disjoint=is_disjoint,
+								GPU_NUM=GPU_NUM,
+								seed=42,
+								file_name=file_name,
+								log_dir=log_dir,
+								experiment=experiment,
+								scope = scope,
+								data = dataset,
+								fix_batch_size = fix_batch_size,
+								fraction = fraction,
+									fp = fp,
+									commend = commend)
+					except:
+						logging.warning()
+						warnings.warn(f"Exp didn;t work at all the /n {commend}")
+
+						continue
 	
 	te = timeit.default_timer()  # 종료 시간 체크
 	print("%f초 걸렸습니다." % (te - st))
