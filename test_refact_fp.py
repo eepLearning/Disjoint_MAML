@@ -7,7 +7,7 @@ from torch import nn, optim
 import os
 
 print("pwd :", os.getcwd())
-from utils import evaluate,fake_adopt_before, fake_adopt_now
+from utils import *
 ##일단 writer 꺼둔다
 import pickle
 import gzip
@@ -50,7 +50,7 @@ def fast_adapt(batch, learner, loss, adaptation_steps, shots, ways, device):
         train_error = loss(learner(adaptation_data), adaptation_labels)
         learner.adapt(train_error)
        
-    print(train_error)
+
 
     # Evaluate the adapted model
     predictions = learner(evaluation_data)
@@ -78,7 +78,8 @@ def maml_exp(ways=5,
              data="omniglot",
              fix_batch_size=True,
              fraction=1,
-             fp = 0):
+             fp = 0,
+             commend = "commend not found"):
     # set experiment_config
     
 
@@ -99,10 +100,10 @@ def maml_exp(ways=5,
     device = torch.device(f'cuda:{GPU_NUM}' if torch.cuda.is_available() else 'cpu')
     torch.cuda.manual_seed(seed)
     print('Current cuda device ', torch.cuda.current_device())
-    file_name = data + ">" + "Client=" + str(meta_batch_size) + ">is_disjoint=" + str(is_disjoint) + ">fraction=" + str(
-        fraction)
-    log_path = os.path.join('./log/{}'.format(exp_name, file_name))
-    log_path = os.path.join(log_path, str(datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
+    file_name = data + "_" + "Client=" + str(meta_batch_size) + "_is_disjoint=" + str(is_disjoint) + "_fraction=" + str(
+        fraction)+"_fake_episode="+str(fp)+"_"
+    log_path = os.path.join('./log/{}'.format(exp_name) )
+    log_path = os.path.join(log_path, file_name + str(datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
     writer = SummaryWriter(logdir=log_path)  # asdf
 
     ######tesnsorboard
@@ -153,6 +154,8 @@ def maml_exp(ways=5,
             meta_batch_size = 32
 
         disjoint_setting = []
+        meta_batch_size_client = meta_batch_size
+        meta_batch_size = 32
 
     # Load train/validation/test tasksets using the benchmark interface
     tasksets, client = l2l.vision.benchmarks.get_tasksets(data,
@@ -231,8 +234,8 @@ def maml_exp(ways=5,
         meta_train_accuracy = 0.0
         meta_valid_error = 0.0
         meta_valid_accuracy = 0.0
-        error_dict = {}
-        error_data = {}
+        error_dict = defaultdict(list)
+        error_data = defaultdict(list)
         #여기까지는 iteration 안에 있다.
     
     
@@ -275,13 +278,35 @@ def maml_exp(ways=5,
                                                                                        error_data,
                                                                                        task)
                 evaluation_error.backward()
-            else:
-                raise("No fake episode method decided, Go Away!")
-                
-    
-    
-        
+               
+            elif fp == 2:
+                evaluation_error, evaluation_accuracy,error_dict,error_data = fake_adopt_debug2(batch,
+                                                                                       learner,
+                                                                                       loss,
+                                                                                       adaptation_steps,
+                                                                                       shots,
+                                                                                       ways,
+                                                                                       device,
+                                                                                       error_dict,
+                                                                                       error_data,
+                                                                                       task)
+                evaluation_error.backward()
+            elif fp == 3:
+               evaluation_error, evaluation_accuracy, error_dict, error_data = fake_adopt_3_before(batch,
+                                                                                                 learner,
+                                                                                                 loss,
+                                                                                                 adaptation_steps,
+                                                                                                 shots,
+                                                                                                 ways,
+                                                                                                 device,
+                                                                                                 error_dict,
+                                                                                                 error_data,
+                                                                                                 task,iteration)
+               if iteration % 50 !=0:
+                  evaluation_error.backward()
+   
 
+            
             # outer update가 이부분인듯?
             #evaluation_error.backward()
             meta_train_error += evaluation_error.item()
@@ -299,6 +324,7 @@ def maml_exp(ways=5,
                                                                device)
             meta_valid_error += evaluation_error.item()
             meta_valid_accuracy += evaluation_accuracy.item()
+        #print("수정 되기는 하는겨?")
 
         # Print some metrics
         error_train = meta_train_error / meta_batch_size
@@ -317,39 +343,88 @@ def maml_exp(ways=5,
         result["train_acc"].append(accuracy_train)
         result["valid_acc"].append(accuracy_valid)
 
-        if iteration % 10 == 0:
-            print('\n')
-            print('Iteration', iteration)
-            print('Meta Train Error', error_train)
-            print('Meta Train Accuracy', accuracy_train)
-            print('Meta Valid Error', error_valid)
-            print('Meta Valid Accuracy', accuracy_valid)
+        #if iteration % 10 == 0:
+        print('\n')
+        print('Iteration', iteration)
+        print('Meta Train Error', error_train)
+        print('Meta Train Accuracy', accuracy_train)
+        print('Meta Valid(before) Error', error_valid)
+        print('Meta Valid(before) Accuracy', accuracy_valid)
         
 
         # Average the accumulated gradients and optimize
-        if fp == 0:
+
+        print("fp :",fp)
+        print("fp in [0,2] :",fp in [0,2])
+        if fp in [0,2]:
             for p in maml.parameters():
                 p.grad.data.mul_(1.0 / meta_batch_size)
             opt.step()  # 여기서 maml 파라미터 업데이트가 일어난다.
-        elif fp == 1:
-            for task in range(meta_batch_size):
-                learner = maml.clone()
-                fake_losss = sum(random.choices(list(error_dict.values()),k=5 ))
-                #fake_loss = torch.tensor(2.1331, device='cuda:3', grad_fn=<NllLossBackward>)
-                
-                print(fake_losss)
-                evaluation_error = fake_adopt_now( learner, fake_loss,loss, error_data, task)
-                evaluation_error.backward()
-                
-               
-            update = 0
-            for p in maml.parameters():
-                p.grad.data.mul_(1.0 / meta_batch_size)
-                update += 1
-            print("Revised bacth(Original+Fake) :", update)
-            opt.step()
+        elif fp == 1 :
+           all_grad = []
+           for g_list in error_dict.values():
+              all_grad.extend(g_list)
+             
+           for task in range(meta_batch_size):
+              learner = maml.clone()
+              fake_grads = random.choices(all_grad,k=5 )
+              
+              evaluation_error = fake_adopt_now( learner, fake_grads,loss, error_data, task)
+              evaluation_error.backward() #이게 제대로 되는 것인지가 좀 애매하네....
+   
+              print("Fake batch - outer loss done")
+              for p in maml.parameters():
+                 p.grad.data.mul_(1.0 / meta_batch_size)
+              opt.step()
+        elif fp == 3:
+           if iteration % 50 == 0:
+              all_grad = [] #사실 all_updates
+              for g_list in error_dict.values():
+                 all_grad.extend(g_list)
+              for task in range(meta_batch_size):
+                 learner = maml.clone()
+                 fake_grads = random.choices(all_grad, k=5) # 5 updates
+   
+                 evaluation_error = fake_adopt_3_now(learner, fake_grads, loss, error_data, task)
+                 evaluation_error.backward()  # 이게 제대로 되는 것인지가 좀 애매하네....
+   
+                 #print("Fake batch - outer loss done")
+                 for p in maml.parameters():
+                    p.grad.data.mul_(1.0 / meta_batch_size)
+                 opt.step()
+           else:
+              for p in maml.parameters():
+                 p.grad.data.mul_(1.0 / meta_batch_size)
+              opt.step()  # 여기서 maml 파라미터 업데이트가 일어난다.
+              
+              
+           
+           
+           
+
+        '''
+        meta_valid_error = 0.0
+        meta_valid_accuracy = 0.0
+        for fp debug
+        for i in range(32):
+            # Compute meta-validation loss
+            learner = maml.clone()
+            batch = tasksets.validation.sample()
+            evaluation_error, evaluation_accuracy = fast_adapt(batch,
+                                                               learner,
+                                                               loss,
+                                                               adaptation_steps,
+                                                               shots,
+                                                               ways,
+                                                               device)
             
-    
+            meta_valid_error += evaluation_error.item()
+            meta_valid_accuracy += evaluation_accuracy.item()
+        error_valid = meta_valid_error / meta_batch_size
+        accuracy_valid = meta_valid_accuracy / meta_batch_size
+        print('Meta Valid(after) Error', error_valid)
+        print('Meta Valid(after) Accuracy', accuracy_valid)
+        '''
         
     
         
@@ -376,8 +451,8 @@ def maml_exp(ways=5,
                 test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000,
                                                                                                   maml,
                                                                                                   task_information)
-                writer.add_scalar('test_accuracy_mean', test_accuracy_mean, iteration)
-                writer.add_scalar('test_accuracy_std', test_accuracy_std, iteration)
+                writer.add_scalar('test_accuracy_mean_5000', test_accuracy_mean, iteration)
+                writer.add_scalar('test_accuracy_std_5000', test_accuracy_std, iteration)
                 result["test(record)"].append(
                     {'mean': test_accuracy_mean, 'std': test_accuracy_std, 'iteration': iteration,
                      'client': meta_batch_size, 'method': method})
@@ -391,11 +466,7 @@ def maml_exp(ways=5,
                                                                                       maml, task_information)
     result["test(mean)"].append({'mean': test_accuracy_mean, 'std': test_accuracy_std, 'iteration': iteration,
                                  'client': meta_batch_size, 'method': method})
-    writer.add_hparams({'shots': shots,'ways': ways, 'meta_lr': meta_lr, 'Client': len(disjoint_setting), 'fast_lr': fast_lr,
-                        'meta_batch_size': meta_batch_size,
-                        'num_iterations': num_iterations, 'is_disjoint': is_disjoint, 'scope': scope, 'data': data,
-                        'fraction': fraction},
-                       {'hparam/accuracy_mean': test_accuracy_mean, 'hparam/accuracy_mstd': test_accuracy_std})
+  
     print('\n')
     print(method, " : Client ", meta_batch_size)
     print('Meta Test Error(Mean)', test_error_mean)
@@ -406,20 +477,30 @@ def maml_exp(ways=5,
     # @save time
     # for there is no best model yet
     try:
-        test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000,
+        best_test_error_mean, best_test_error_std, best_test_accuracy_mean, best_test_accuracy_std = evaluate(5000,
                                                                                           best_learner,
                                                                                           task_information)
     except:
-        test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std = evaluate(5000,
+        best_test_error_mean, best_test_error_std, best_test_accuracy_mean, best_test_accuracy_std= evaluate(5000,
                                                                                           maml, task_information)
     print("Best Iteration on Validation : Iteration", best_iteration)
-    print('Meta Test Error(Best)', test_error_mean)
-    print('Meta Test Accuracy(Best)', test_accuracy_mean)
+    print('Meta Test Error(Best)', best_test_error_mean)
+    print('Meta Test Accuracy(Best)', best_test_accuracy_mean)
     # writer.add_scalars('Test',{'Acc(Best)':test_accuracy_mean, 'Acc(Best)(std)':test_accuracy_std  } , 0)
-    result["test(best)"].append({'mean': test_accuracy_mean, 'std': test_accuracy_std, 'iteration': iteration,
+    
+    result["test(best)"].append({'mean': best_test_accuracy_mean, 'std': best_test_accuracy_std, 'iteration': iteration,
                                  'client': meta_batch_size, 'method': method, 'best_iteration': best_iteration,
                                  "best_accuracy": best_accuracy})
-
+    result["commend"] = commend
+    writer.add_hparams(
+        {'Method': method, 'shots': shots, 'ways': ways, 'meta_lr': meta_lr, 'Client': len(disjoint_setting), 'fast_lr': fast_lr,
+         'meta_batch_size': meta_batch_size,
+         'num_iterations': num_iterations, 'is_disjoint': is_disjoint, 'scope': scope, 'data': data,
+         'fraction': fraction, 'best_iteraetion':best_iteration, 'commend':commend},
+        {'hparam/accuracy_mean': test_accuracy_mean, 'hparam/accuracy_mstd': test_accuracy_std,
+         'hparam/accuracy_mean(best_learner)': best_test_accuracy_mean,
+         'hparam/accuracy_mstd(best_learner)': best_test_accuracy_std})
+    
     # writer.close()
 
     if not os.path.exists(log_dir):
@@ -427,8 +508,8 @@ def maml_exp(ways=5,
 
     terminate_time = timeit.default_timer()  # 종료 시간 체크
     result["time"] = (terminate_time - start_time)
-    with gzip.open(log_dir + '/{}_{}_client{}_scope{}_fraction{}_{}.pickle'.format(exp_name, method, meta_batch_size_client,
-                                                                           str(scope),str(fraction), data), 'wb') as f:
+    with gzip.open(log_dir + '/{}_{}_client{}_scope{}_fraction{}_{}_fp{}.pickle'.format(exp_name, method, meta_batch_size_client,
+                                                                           str(scope),str(fraction), data,fp), 'wb') as f:
         pickle.dump(result, f)
 
     terminate_time = timeit.default_timer()  # 종료 시간 체크
