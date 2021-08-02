@@ -302,7 +302,21 @@ def maml_exp(ways=5,
                                                                                                  error_dict,
                                                                                                  error_data,
                                                                                                  task,iteration)
-               if iteration % 50 !=0:
+               if iteration % 49 !=0:
+                  evaluation_error.backward()
+
+            elif fp == 4:
+               evaluation_error, evaluation_accuracy, error_dict, error_data = fake_adopt_4_before(batch,
+                                                                                                   learner,
+                                                                                                   loss,
+                                                                                                   adaptation_steps,
+                                                                                                   shots,
+                                                                                                   ways,
+                                                                                                   device,
+                                                                                                   error_dict,
+                                                                                                   error_data,
+                                                                                                   task, iteration)
+               if iteration % 9 != 0:
                   evaluation_error.backward()
    
 
@@ -377,7 +391,7 @@ def maml_exp(ways=5,
                  p.grad.data.mul_(1.0 / meta_batch_size)
               opt.step()
         elif fp == 3:
-           if iteration % 50 == 0:
+           if iteration % 49 == 0:
               all_grad = [] #사실 all_updates
               for g_list in error_dict.values():
                  all_grad.extend(g_list)
@@ -396,9 +410,28 @@ def maml_exp(ways=5,
               for p in maml.parameters():
                  p.grad.data.mul_(1.0 / meta_batch_size)
               opt.step()  # 여기서 maml 파라미터 업데이트가 일어난다.
-              
-              
-           
+
+
+        elif fp == 4:
+           if iteration % 9 == 0:
+              all_grad = []  # 사실 all_updates
+              for g_list in error_dict.values():
+                 all_grad.extend(g_list)
+              for task in range(meta_batch_size):
+                 learner = maml.clone()
+                 fake_grads = random.choices(all_grad, k=5)  # 5 updates
+         
+                 evaluation_error = fake_adopt_4_now(learner, fake_grads, loss, error_data, task)
+                 evaluation_error.backward()  # 이게 제대로 되는 것인지가 좀 애매하네....
+
+                 # print("Fake batch - outer loss done")
+                 for p in maml.parameters():
+                    p.grad.data.mul_(1.0 / meta_batch_size)
+                 opt.step()
+           else:
+              for p in maml.parameters():
+                 p.grad.data.mul_(1.0 / meta_batch_size)
+              opt.step()  # 여기서 maml 파라미터 업데이트가 일어난다.
            
            
 
