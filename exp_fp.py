@@ -163,6 +163,7 @@ def main(client_grid,num_iterations,is_disjoint_option,file_name,experiment,scop
 					except:
 						logging.warning()
 						warnings.warn(f"Exp didn;t work at all the /n {commend}")
+						
 
 						continue
 	

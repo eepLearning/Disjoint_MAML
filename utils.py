@@ -122,66 +122,6 @@ def fake_adopt_debug2(batch,
 	return valid_error, valid_accuracy,{"2":[3]},{"2":[3]}
 
 
-def fake_adopt_3_before(batch,
-							 learner,
-							 loss,
-							 adaptation_steps,
-							 shots,
-							 ways,
-							 device,
-							 error_dict,
-							 error_data,
-							 task,iteration):
-	data, labels = batch
-	data, labels = data.to(device), labels.to(device)
-	
-	adaptation_indices = np.zeros(data.size(0), dtype=bool)
-	adaptation_indices[np.arange(shots * ways) * 2] = True
-	evaluation_indices = torch.from_numpy(~adaptation_indices)
-	adaptation_indices = torch.from_numpy(adaptation_indices)
-
-	
-	adaptation_data, adaptation_labels = data[adaptation_indices], labels[adaptation_indices]
-	evaluation_data, evaluation_labels = data[evaluation_indices], labels[evaluation_indices]
-	
-	# Adapt the model #support loss
-	if iteration % 49 == 0:
-		loss2 = nn.CrossEntropyLoss(reduction='none')
-		for step in range(adaptation_steps):
-			individual_loss = loss2(learner(adaptation_data), adaptation_labels)
-			for il in individual_loss:
-				grads = grad(il, learner.parameters(),retain_graph= True) #이거 안하면 끝나고 free되서 오류남
-				updates = [-learner.lr * g for g in grads]
-				error_dict[task].append(updates)
-			error_data[task] = evaluation_data, evaluation_labels
-			#train_error = torch.mean(individual_loss)
-			#learner.adapt(train_error)
-		valid_error = torch.tensor([0])
-		valid_accuracy = torch.tensor([0])
-	
-	else:
-		for step in range(adaptation_steps):
-			train_error = loss(learner(adaptation_data), adaptation_labels)
-			learner.adapt(train_error)
-		predictions = learner(evaluation_data)
-		valid_error = loss(predictions, evaluation_labels)
-		valid_accuracy = accuracy(predictions, evaluation_labels)
-
-
-	return valid_error, valid_accuracy, error_dict, error_data
-
-
-def fake_adopt_3_now(learner, fake_grads, loss, error_data, task):
-	for updates in fake_grads:
-		update_module(learner, updates=updates)
-	query_data, query_label = error_data[task]
-	
-	predictions = learner(query_data)
-	# query loss
-	
-	evaluation_error = loss(predictions, query_label)
-	
-	return evaluation_error
 
 def fake_adopt_before(batch, learner, loss, adaptation_steps, shots, ways, device, error_dict, error_data, task):
 	datas, labels = batch
@@ -354,6 +294,122 @@ def evaluate(test_iteration, maml, task_information):
 	print('Meta Test Accuracy(Iteration Record)', test_accuracy_mean)
 	return test_error_mean, test_error_std, test_accuracy_mean, test_accuracy_std
 
+####new fake adopt 1
+def fake_adopt_1_before(batch,
+								learner,
+								loss,
+								adaptation_steps,
+								shots, ways, device,
+								error_dict, error_data,
+								task):
+	datas, labels = batch
+	datas, labels = datas.to(device), labels.to(device)
+	
+	# Separate data into adaptation/evalutation sets
+	adaptation_indices = np.zeros(datas.size(0), dtype=bool)
+	adaptation_indices[np.arange(shots * ways) * 2] = True
+	evaluation_indices = torch.from_numpy(~adaptation_indices)
+	adaptation_indices = torch.from_numpy(adaptation_indices)
+	# print("evaluation_indices",evaluation_indices)
+	# print("adaptation_indices", adaptation_indices)
+	
+	adaptation_data, adaptation_labels = datas[adaptation_indices], labels[adaptation_indices]
+	evaluation_data, evaluation_labels = datas[evaluation_indices], labels[evaluation_indices]
+	
+	# Adapt the model
+	
+	loss2 = nn.CrossEntropyLoss(reduction='none')
+	for step in range(adaptation_steps):
+		individual_loss = loss2(learner(adaptation_data), adaptation_labels)
+		for il in individual_loss:
+			grads = grad(il, learner.parameters(), retain_graph=True)  # 이거 안하면 끝나고 free되서 오류남
+			updates = [-learner.lr * g for g in grads]
+			error_dict[task].append(updates)
+		train_error = loss(learner(adaptation_data), adaptation_labels)
+		learner.adapt(train_error)
+	error_data[task] = evaluation_data, evaluation_labels
+	# Evaluate the adapted model
+	predictions = learner(evaluation_data)
+	# query loss
+	
+	evaluation_error = loss(predictions, evaluation_labels)
+	evaluation_accuracy = accuracy(predictions, evaluation_labels)
+	return evaluation_error, evaluation_accuracy, error_dict, error_data
+
+
+def fake_adopt_1_now(learner, fake_grads, loss, error_data, task):
+	for updates in fake_grads:
+		update_module(learner, updates=updates)
+	query_data, query_label = error_data[task]
+	
+	predictions = learner(query_data)
+	# query loss
+	
+	evaluation_error = loss(predictions, query_label)
+	
+	return evaluation_error
+
+
+#####fake_adopt 3
+def fake_adopt_3_before(batch,
+								learner,
+								loss,
+								adaptation_steps,
+								shots,
+								ways,
+								device,
+								error_dict,
+								error_data,
+								task, iteration):
+	data, labels = batch
+	data, labels = data.to(device), labels.to(device)
+	
+	adaptation_indices = np.zeros(data.size(0), dtype=bool)
+	adaptation_indices[np.arange(shots * ways) * 2] = True
+	evaluation_indices = torch.from_numpy(~adaptation_indices)
+	adaptation_indices = torch.from_numpy(adaptation_indices)
+	
+	adaptation_data, adaptation_labels = data[adaptation_indices], labels[adaptation_indices]
+	evaluation_data, evaluation_labels = data[evaluation_indices], labels[evaluation_indices]
+	
+	# Adapt the model #support loss
+	if iteration % 49 == 0:
+		loss2 = nn.CrossEntropyLoss(reduction='none')
+		for step in range(adaptation_steps):
+			individual_loss = loss2(learner(adaptation_data), adaptation_labels)
+			for il in individual_loss:
+				grads = grad(il, learner.parameters(), retain_graph=True)  # 이거 안하면 끝나고 free되서 오류남
+				updates = [-learner.lr * g for g in grads]
+				error_dict[task].append(updates)
+		error_data[task] = evaluation_data, evaluation_labels
+		# train_error = torch.mean(individual_loss)
+		# learner.adapt(train_error)
+		valid_error = torch.tensor([0])
+		valid_accuracy = torch.tensor([0])
+	
+	else:
+		for step in range(adaptation_steps):
+			train_error = loss(learner(adaptation_data), adaptation_labels)
+			learner.adapt(train_error)
+		predictions = learner(evaluation_data)
+		valid_error = loss(predictions, evaluation_labels)
+		valid_accuracy = accuracy(predictions, evaluation_labels)
+	
+	return valid_error, valid_accuracy, error_dict, error_data
+
+
+def fake_adopt_3_now(learner, fake_grads, loss, error_data, task):
+	for updates in fake_grads:
+		update_module(learner, updates=updates)
+	query_data, query_label = error_data[task]
+	
+	predictions = learner(query_data)
+	# query loss
+	
+	evaluation_error = loss(predictions, query_label)
+	
+	return evaluation_error
+
 
 #############fake adopt 4
 def fake_adopt_4_before(batch,
@@ -386,7 +442,7 @@ def fake_adopt_4_before(batch,
 				#grads = grad(il, learner.parameters(), retain_graph=True)  # 이거 안하면 끝나고 free되서 오류남
 				#updates = [-learner.lr * g for g in grads]
 				error_dict[task].append(il)
-			error_data[task] = evaluation_data, evaluation_labels
+		error_data[task] = evaluation_data, evaluation_labels
 		# train_error = torch.mean(individual_loss)
 		# learner.adapt(train_error)
 		valid_error = torch.tensor([0])
@@ -406,15 +462,8 @@ def fake_adopt_4_before(batch,
 def fake_adopt_4_now(learner, fake_grads, loss, error_data, task):
 	#for  in fake_grads:
 		#update_module(learner, updates=updates)
-	print(fake_grads)
-	train_error = torch.mean( torch.stack(fake_grads) )
-	#train_error = torch.cat(fake_grads, 0)
-	print(train_error)
-	#learner.adapt(train_error)
-	grads = grad(train_error, learner.parameters())
-	updates = [-learner.lr * g for g in grads]
-	update_module(learner, updates=updates)
-	
+	for updates in fake_grads:
+		update_module(learner, updates=updates)
 	query_data, query_label = error_data[task]
 	
 	predictions = learner(query_data)
@@ -423,3 +472,502 @@ def fake_adopt_4_now(learner, fake_grads, loss, error_data, task):
 	evaluation_error = loss(predictions, query_label)
 	
 	return evaluation_error
+
+
+#############fake adopt 5
+def fake_adopt_5_before(batch,
+								learner,
+								loss,
+								adaptation_steps,
+								shots,
+								ways,
+								device,
+								error_dict,
+								error_data,
+								task, iteration,split_meta_batch_size):
+	data, labels = batch
+	data, labels = data.to(device), labels.to(device)
+	
+	adaptation_indices = np.zeros(data.size(0), dtype=bool)
+	adaptation_indices[np.arange(shots * ways) * 2] = True
+	evaluation_indices = torch.from_numpy(~adaptation_indices)
+	adaptation_indices = torch.from_numpy(adaptation_indices)
+	
+	adaptation_data, adaptation_labels = data[adaptation_indices], labels[adaptation_indices]
+	evaluation_data, evaluation_labels = data[evaluation_indices], labels[evaluation_indices]
+	
+	# Adapt the model #support loss
+	if task >= split_meta_batch_size:
+		loss2 = nn.CrossEntropyLoss(reduction='none')
+		for step in range(adaptation_steps):
+			individual_loss = loss2(learner(adaptation_data), adaptation_labels)
+			for il in individual_loss:
+				grads = grad(il, learner.parameters(), retain_graph=True)  # 이거 안하면 끝나고 free되서 오류남
+				updates = [-learner.lr * g for g in grads]
+				error_dict[task].append(updates)
+		error_data[task] = evaluation_data, evaluation_labels
+		# train_error = torch.mean(individual_loss)
+		# learner.adapt(train_error)
+		valid_error = torch.tensor([0])
+		valid_accuracy = torch.tensor([0])
+	
+	else:
+		for step in range(adaptation_steps):
+			train_error = loss(learner(adaptation_data), adaptation_labels)
+			learner.adapt(train_error)
+		predictions = learner(evaluation_data)
+		valid_error = loss(predictions, evaluation_labels)
+		valid_accuracy = accuracy(predictions, evaluation_labels)
+	
+	return valid_error, valid_accuracy, error_dict, error_data
+
+
+def fake_adopt_5_now(learner, fake_grads, loss, error_data, task):
+	# for  in fake_grads:
+	# update_module(learner, updates=updates)
+	for updates in fake_grads:
+		update_module(learner, updates=updates)
+	query_data, query_label = error_data[task]
+	
+	predictions = learner(query_data)
+	# query loss
+	
+	evaluation_error = loss(predictions, query_label)
+	
+	return evaluation_error
+
+#############fake adopt 6
+def fake_adopt_6_before(batch,
+								learner,
+								loss,
+								adaptation_steps,
+								shots,
+								ways,
+								device,
+								error_dict,
+								error_data,
+								task, iteration,split_meta_batch_size):
+	data, labels = batch
+	data, labels = data.to(device), labels.to(device)
+	
+	adaptation_indices = np.zeros(data.size(0), dtype=bool)
+	adaptation_indices[np.arange(shots * ways) * 2] = True
+	evaluation_indices = torch.from_numpy(~adaptation_indices)
+	adaptation_indices = torch.from_numpy(adaptation_indices)
+	
+	adaptation_data, adaptation_labels = data[adaptation_indices], labels[adaptation_indices]
+	evaluation_data, evaluation_labels = data[evaluation_indices], labels[evaluation_indices]
+	
+	# Adapt the model #support loss
+	if task >= split_meta_batch_size:
+		loss2 = nn.CrossEntropyLoss(reduction='none')
+		for step in range(adaptation_steps):
+			individual_loss = loss2(learner(adaptation_data), adaptation_labels)
+			for il in individual_loss:
+				grads = grad(il, learner.parameters(), retain_graph=True)  # 이거 안하면 끝나고 free되서 오류남
+				updates = [-learner.lr * g for g in grads]
+				error_dict[task].append(updates)
+		error_data[task] = evaluation_data, evaluation_labels
+		# train_error = torch.mean(individual_loss)
+		# learner.adapt(train_error)
+		valid_error = torch.tensor([0])
+		valid_accuracy = torch.tensor([0])
+	
+	else:
+		for step in range(adaptation_steps):
+			train_error = loss(learner(adaptation_data), adaptation_labels)
+			learner.adapt(train_error)
+		predictions = learner(evaluation_data)
+		valid_error = loss(predictions, evaluation_labels)
+		valid_accuracy = accuracy(predictions, evaluation_labels)
+	
+	return valid_error, valid_accuracy, error_dict, error_data
+
+def fake_adopt_6_now(learner, fake_grads, loss, error_data, task):
+	# for  in fake_grads:
+	# update_module(learner, updates=updates)
+	for updates in fake_grads:
+		update_module(learner, updates=updates)
+	query_data, query_label = error_data[task]
+	
+	predictions = learner(query_data)
+	# query loss
+	
+	evaluation_error = loss(predictions, query_label)
+	
+	return evaluation_error
+
+
+#############fake adopt 7 (랩미팅 피드백)
+# 50% 정상  + 50% fake
+# 50 % 전반 client 정상적 진행
+# 50 % 후반 client 가지고 fake 진행행
+def fake_adopt_7_before(batch,
+								learner,
+								loss,
+								adaptation_steps,
+								shots,
+								ways,
+								device,
+								error_dict,
+								error_data,
+								task, iteration, split_meta_batch_size):
+	data, labels = batch
+	data, labels = data.to(device), labels.to(device)
+	
+	adaptation_indices = np.zeros(data.size(0), dtype=bool)
+	adaptation_indices[np.arange(shots * ways) * 2] = True
+	evaluation_indices = torch.from_numpy(~adaptation_indices)
+	adaptation_indices = torch.from_numpy(adaptation_indices)
+	
+	adaptation_data, adaptation_labels = data[adaptation_indices], labels[adaptation_indices]
+	evaluation_data, evaluation_labels = data[evaluation_indices], labels[evaluation_indices]
+	
+	# Adapt the model #support loss
+	if task >= split_meta_batch_size:
+		#후반 50% client fake 진행
+		loss2 = nn.CrossEntropyLoss(reduction='none')
+		for step in range(adaptation_steps):
+			individual_loss = loss2(learner(adaptation_data), adaptation_labels)
+			for il in individual_loss:
+				grads = grad(il, learner.parameters(), retain_graph=True)  # 이거 안하면 끝나고 free되서 오류남
+				updates = [-learner.lr * g for g in grads]
+				error_dict[task].append(updates)
+		error_data[task] = evaluation_data, evaluation_labels
+		# train_error = torch.mean(individual_loss)
+		# learner.adapt(train_error)
+		valid_error = torch.tensor([0])
+		valid_accuracy = torch.tensor([0])
+	
+	else:
+		#정상적인 진행 :전반 50% client
+		for step in range(adaptation_steps):
+			train_error = loss(learner(adaptation_data), adaptation_labels)
+			learner.adapt(train_error)
+		predictions = learner(evaluation_data)
+		valid_error = loss(predictions, evaluation_labels)
+		valid_accuracy = accuracy(predictions, evaluation_labels)
+	
+	return valid_error, valid_accuracy, error_dict, error_data
+
+
+def fake_adopt_7_now(learner, fake_grads, loss, error_data, task,label_index,client_index):
+	# for  in fake_grads:
+	# update_module(learner, updates=updates)
+	for updates in fake_grads:
+		update_module(learner, updates=updates) #일단 fake adaptation
+	
+	loss2 = nn.CrossEntropyLoss(reduction='none')
+	#Client로 접근
+	error_list = []
+	for idx,client in enumerate(client_index):
+		query_data, query_label = error_data[client]
+		label = label_index[idx]
+		individual_query_loss = loss2(learner(query_data),query_label)[label]
+		error_list.append(individual_query_loss)
+	
+		
+	evaluation_error = torch.mean(torch.stack(error_list))
+	
+	return evaluation_error
+
+#fake7 : 1차 시도
+#그냥 지금까지 실패했던 것처럼 로직만 짜고 러프하게 loss 일일이 구해서 그것들을 평균내는 방식으로
+#산출 , 실패 예상 => 사실 이게 되면 제일 깔끔
+#엥 돌아가버리네 이게??
+
+
+#############fake adopt 8 (랩미팅 피드백)
+# 50% 정상  + 50% fake
+# 50 % 전반 client 정상적 진행
+# 50 % 전반 client 가지고 fake 진행행
+def fake_adopt_8_before(batch,
+								learner,
+								loss,
+								adaptation_steps,
+								shots,
+								ways,
+								device,
+								error_dict,
+								error_data,
+								task, iteration, split_meta_batch_size):
+	data, labels = batch
+	data, labels = data.to(device), labels.to(device)
+	
+	adaptation_indices = np.zeros(data.size(0), dtype=bool)
+	adaptation_indices[np.arange(shots * ways) * 2] = True
+	evaluation_indices = torch.from_numpy(~adaptation_indices)
+	adaptation_indices = torch.from_numpy(adaptation_indices)
+	
+	adaptation_data, adaptation_labels = data[adaptation_indices], labels[adaptation_indices]
+	evaluation_data, evaluation_labels = data[evaluation_indices], labels[evaluation_indices]
+	
+	# Adapt the model #support loss
+
+   #초반 50% client를 가지고 grads 저장 + 정상적인 진행
+	loss2 = nn.CrossEntropyLoss(reduction='none')
+	for step in range(adaptation_steps):
+		individual_loss = loss2(learner(adaptation_data), adaptation_labels)
+		for il in individual_loss:
+			grads = grad(il, learner.parameters(), retain_graph=True)  # 이거 안하면 끝나고 free되서 오류남
+			updates = [-learner.lr * g for g in grads]
+			error_dict[task].append(updates)
+		train_error = loss(learner(adaptation_data), adaptation_labels)
+		learner.adapt(train_error)
+	error_data[task] = evaluation_data, evaluation_labels
+	# train_error = torch.mean(individual_loss)
+	# learner.adapt(train_error)
+
+	
+	
+
+	predictions = learner(evaluation_data)
+	valid_error = loss(predictions, evaluation_labels)
+	valid_accuracy = accuracy(predictions, evaluation_labels)
+	
+	return valid_error, valid_accuracy, error_dict, error_data
+
+
+def fake_adopt_8_now(learner, fake_grads, loss, error_data, task, label_index, client_index):
+	# for  in fake_grads:
+	# update_module(learner, updates=updates)
+	for updates in fake_grads:
+		update_module(learner, updates=updates)  # 일단 fake adaptation
+	
+	loss2 = nn.CrossEntropyLoss(reduction='none')
+	# Client로 접근
+	error_list = []
+	for idx, client in enumerate(client_index):
+		query_data, query_label = error_data[client]
+		label = label_index[idx]
+		individual_query_loss = loss2(learner(query_data), query_label)[label]
+		error_list.append(individual_query_loss)
+	
+	evaluation_error = torch.mean(torch.stack(error_list))
+	
+	return evaluation_error
+
+##0812에 구현
+#############fake adopt 9 (공동 랩미팅 피드백)
+# 50% 정상  + 50% fake
+# 50 % 전반 client 정상적 진행
+# 50 % 후반 client 가지고 fake 진행행
+# + 인덱싱 (support grad / query loss)
+# + class 비복원추출
+def fake_adopt_9_before(batch,
+								learner,
+								loss,
+								adaptation_steps,
+								shots,
+								ways,
+								device,
+								error_dict,
+								error_data,
+								task, iteration, split_meta_batch_size):
+	data, labels = batch
+	data, labels = data.to(device), labels.to(device)
+	
+	adaptation_indices = np.zeros(data.size(0), dtype=bool)
+	adaptation_indices[np.arange(shots * ways) * 2] = True
+	evaluation_indices = torch.from_numpy(~adaptation_indices)
+	adaptation_indices = torch.from_numpy(adaptation_indices)
+	
+	adaptation_data, adaptation_labels = data[adaptation_indices], labels[adaptation_indices]
+	evaluation_data, evaluation_labels = data[evaluation_indices], labels[evaluation_indices]
+	
+	# Adapt the model #support loss
+	if task >= split_meta_batch_size:
+		# 후반 50% client fake 진행
+		loss2 = nn.CrossEntropyLoss(reduction='none')
+		for step in range(adaptation_steps):
+			individual_loss = loss2(learner(adaptation_data), adaptation_labels)
+			for il in individual_loss:
+				grads = grad(il, learner.parameters(), retain_graph=True)  # 이거 안하면 끝나고 free되서 오류남
+				updates = [-learner.lr * g for g in grads]
+				error_dict[task].append(updates)
+		error_data[task] = evaluation_data, evaluation_labels
+		# train_error = torch.mean(individual_loss)
+		# learner.adapt(train_error)
+		valid_error = torch.tensor([0])
+		valid_accuracy = torch.tensor([0])
+	
+	else:
+		# 정상적인 진행 :전반 50% client
+		for step in range(adaptation_steps):
+			train_error = loss(learner(adaptation_data), adaptation_labels)
+			learner.adapt(train_error)
+		predictions = learner(evaluation_data)
+		valid_error = loss(predictions, evaluation_labels)
+		valid_accuracy = accuracy(predictions, evaluation_labels)
+	
+	return valid_error, valid_accuracy, error_dict, error_data
+
+
+def fake_adopt_9_now(learner, fake_grads, loss, error_data, task, label_index, client_index):
+	# for  in fake_grads:
+	# update_module(learner, updates=updates)
+	for updates in fake_grads:
+		update_module(learner, updates=updates)  # 일단 fake adaptation
+	
+	loss2 = nn.CrossEntropyLoss(reduction='none')
+	# Client로 접근
+	error_list = []
+	for idx, client in enumerate(client_index):
+		query_data, query_label = error_data[client]
+		label = label_index[idx]
+		individual_query_loss = loss2(learner(query_data), query_label)[label]
+		error_list.append(individual_query_loss)
+	
+	evaluation_error = torch.mean(torch.stack(error_list))
+	
+	return evaluation_error
+
+
+# fake7 : 1차 시도
+# 그냥 지금까지 실패했던 것처럼 로직만 짜고 러프하게 loss 일일이 구해서 그것들을 평균내는 방식으로
+# 산출 , 실패 예상 => 사실 이게 되면 제일 깔끔
+# 엥 돌아가버리네 이게??
+
+
+#############fake adopt 8 (랩미팅 피드백)
+# 50% 정상  + 50% fake
+# 50 % 전반 client 정상적 진행
+# 50 % 전반 client 가지고 fake 진행행
+def fake_adopt_10_before(batch,
+								learner,
+								loss,
+								adaptation_steps,
+								shots,
+								ways,
+								device,
+								error_dict,
+								error_data,
+								task, iteration, split_meta_batch_size):
+	data, labels = batch
+	data, labels = data.to(device), labels.to(device)
+	
+	adaptation_indices = np.zeros(data.size(0), dtype=bool)
+	adaptation_indices[np.arange(shots * ways) * 2] = True
+	evaluation_indices = torch.from_numpy(~adaptation_indices)
+	adaptation_indices = torch.from_numpy(adaptation_indices)
+	
+	adaptation_data, adaptation_labels = data[adaptation_indices], labels[adaptation_indices]
+	evaluation_data, evaluation_labels = data[evaluation_indices], labels[evaluation_indices]
+	
+	# Adapt the model #support loss
+	
+	# 초반 50% client를 가지고 grads 저장 + 정상적인 진행
+	loss2 = nn.CrossEntropyLoss(reduction='none')
+	for step in range(adaptation_steps):
+		individual_loss = loss2(learner(adaptation_data), adaptation_labels)
+		for il in individual_loss:
+			grads = grad(il, learner.parameters(), retain_graph=True)  # 이거 안하면 끝나고 free되서 오류남
+			updates = [-learner.lr * g for g in grads]
+			error_dict[task].append(updates)
+		train_error = loss(learner(adaptation_data), adaptation_labels)
+		learner.adapt(train_error)
+	error_data[task] = evaluation_data, evaluation_labels
+	# train_error = torch.mean(individual_loss)
+	# learner.adapt(train_error)
+	
+	predictions = learner(evaluation_data)
+	valid_error = loss(predictions, evaluation_labels)
+	valid_accuracy = accuracy(predictions, evaluation_labels)
+	
+	return valid_error, valid_accuracy, error_dict, error_data
+
+
+def fake_adopt_10_now(learner, fake_grads, loss, error_data, task, label_index, client_index):
+	# for  in fake_grads:
+	# update_module(learner, updates=updates)
+	for updates in fake_grads:
+		update_module(learner, updates=updates)  # 일단 fake adaptation
+	
+	loss2 = nn.CrossEntropyLoss(reduction='none')
+	# Client로 접근
+	error_list = []
+	for idx, client in enumerate(client_index):
+		query_data, query_label = error_data[client]
+		label = label_index[idx]
+		individual_query_loss = loss2(learner(query_data), query_label)[label]
+		error_list.append(individual_query_loss)
+	
+	evaluation_error = torch.mean(torch.stack(error_list))
+	
+	return evaluation_error
+
+
+
+### 검증용 (FP 9,10과 제대로 된 연산 성능을 비교해서 문제점을 파악)
+# 당연히 CLIENT는 32이고 DISJOINT 하지도 않다.
+# 다만 첫 16개는 정상진행 # 이후 16개는 사제연산으로 진행하도록 한다.
+
+def fake_adopt_11_before(batch,
+								learner,
+								loss,
+								adaptation_steps,
+								shots,
+								ways,
+								device,
+								error_dict,
+								error_data,
+								task, iteration, split_meta_batch_size):
+	data, labels = batch
+	data, labels = data.to(device), labels.to(device)
+	
+	adaptation_indices = np.zeros(data.size(0), dtype=bool)
+	adaptation_indices[np.arange(shots * ways) * 2] = True
+	evaluation_indices = torch.from_numpy(~adaptation_indices)
+	adaptation_indices = torch.from_numpy(adaptation_indices)
+	
+	adaptation_data, adaptation_labels = data[adaptation_indices], labels[adaptation_indices]
+	evaluation_data, evaluation_labels = data[evaluation_indices], labels[evaluation_indices]
+	
+	# Adapt the model #support loss
+	if task >= split_meta_batch_size:
+		# 후반 50% client fake 진행
+		loss2 = nn.CrossEntropyLoss(reduction='none')
+		for step in range(adaptation_steps):
+			individual_loss = loss2(learner(adaptation_data), adaptation_labels)
+			for il in individual_loss:
+				grads = grad(il, learner.parameters(), retain_graph=True)  # 이거 안하면 끝나고 free되서 오류남
+				updates = [-learner.lr * g for g in grads]
+				error_dict[task].append(updates)
+		error_data[task] = evaluation_data, evaluation_labels
+		# train_error = torch.mean(individual_loss)
+		# learner.adapt(train_error)
+		valid_error = torch.tensor([0])
+		valid_accuracy = torch.tensor([0])
+	
+	else:
+		# 정상적인 진행 :전반 50% client
+		for step in range(adaptation_steps):
+			train_error = loss(learner(adaptation_data), adaptation_labels)
+			learner.adapt(train_error)
+		predictions = learner(evaluation_data)
+		valid_error = loss(predictions, evaluation_labels)
+		valid_accuracy = accuracy(predictions, evaluation_labels)
+	
+	return valid_error, valid_accuracy, error_dict, error_data
+
+
+def fake_adopt_11_now(learner, fake_grads, loss, error_data, task, label_index, client_index):
+	# for  in fake_grads:
+	# update_module(learner, updates=updates)
+	for updates in fake_grads:
+		update_module(learner, updates=updates)  # 일단 fake adaptation
+	
+	loss2 = nn.CrossEntropyLoss(reduction='none')
+	# Client로 접근
+	error_list = []
+	for idx, client in enumerate(client_index):
+		query_data, query_label = error_data[client]
+		label = label_index[idx]
+		individual_query_loss = loss2(learner(query_data), query_label)[label]
+		error_list.append(individual_query_loss)
+	
+	evaluation_error = torch.mean(torch.stack(error_list))
+	
+	return evaluation_error
+
+

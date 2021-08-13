@@ -5,6 +5,7 @@ import learn2learn as l2l
 
 from torch import nn, optim
 import os
+import time
 
 print("pwd :", os.getcwd())
 from utils import *
@@ -100,10 +101,10 @@ def maml_exp(ways=5,
     device = torch.device(f'cuda:{GPU_NUM}' if torch.cuda.is_available() else 'cpu')
     torch.cuda.manual_seed(seed)
     print('Current cuda device ', torch.cuda.current_device())
-    file_name = data + "_" + "Client=" + str(meta_batch_size) + "_is_disjoint=" + str(is_disjoint) + "_fraction=" + str(
-        fraction)+"_fake_episode="+str(fp)+"_"
+    file_name = data + "_" + "Client=" + str(meta_batch_size) + "_is_disjoint=" + str(is_disjoint) + "_scope=" + str(scope)+"_fraction=" + str(fraction)+"_shots=" + str(shots)+"_fake_episode="+str(fp)+"_"
     log_path = os.path.join('./log/{}'.format(exp_name) )
-    log_path = os.path.join(log_path, file_name + str(datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
+    time.sleep(random.randrange(1, 6, 1)/10)
+    log_path = os.path.join(log_path, file_name + str(datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")) +"_GPU="+str(GPU_NUM))
     writer = SummaryWriter(logdir=log_path)  # asdf
 
     ######tesnsorboard
@@ -130,8 +131,10 @@ def maml_exp(ways=5,
     # set up disjoint
     if data == "omniglot":
         train_class_origin = 1100
-    else:
+    elif data == "mini-imagenet":
         train_class_origin = 64
+    elif data == "tiered-imagenet":
+        train_class_origin = 351
     train_class = int(train_class_origin * scope)
     print("Total Train Classes : ", train_class_origin, "===>", train_class, "(scope : ", scope, ")")
     if is_disjoint == True:
@@ -177,6 +180,8 @@ def maml_exp(ways=5,
         model = l2l.vision.models.OmniglotCNN()
     elif data == "mini-imagenet":
         model = l2l.vision.models.MiniImagenetCNN(ways)
+    elif data == "tiered-imagenet":
+        model = l2l.vision.models.MiniImagenetCNN(ways)
 
     # GPU Parallel
     # model = torch.nn.DataParallel(model)
@@ -187,7 +192,7 @@ def maml_exp(ways=5,
     loss = nn.CrossEntropyLoss(reduction='mean')
 
     best_accuracy = 0
-    best_loss = 1
+    best_loss = 10
     best_iteration = 0
 
     # meta_train
@@ -202,7 +207,7 @@ def maml_exp(ways=5,
     client_list = range(len(disjoint_setting))  # len(disjoint_setting)
     client_list = list(client_list)
 
-    for iteration in range(num_iterations):
+    for iteration in range(num_iterations+1):
 
         # nomal fraction and disjoint_setting
         # iteration마다 다르게 sampling되도록 (문제는 , 지금 len(djisjoint) =! 32이고 그냥 client 수 라는거)
@@ -237,6 +242,7 @@ def maml_exp(ways=5,
         error_dict = defaultdict(list)
         error_data = defaultdict(list)
         #여기까지는 iteration 안에 있다.
+        split_meta_batch_size = int(meta_batch_size/2)
     
     
 
@@ -267,7 +273,7 @@ def maml_exp(ways=5,
                 evaluation_error.backward()
                 
             elif fp == 1:
-                evaluation_error, evaluation_accuracy,error_dict,error_data = fake_adopt_before(batch,
+                evaluation_error, evaluation_accuracy,error_dict,error_data = fake_adopt_1_before(batch,
                                                                                        learner,
                                                                                        loss,
                                                                                        adaptation_steps,
@@ -318,9 +324,133 @@ def maml_exp(ways=5,
                                                                                                    task, iteration)
                if iteration % 9 != 0:
                   evaluation_error.backward()
-   
+            # each iteration, 18 batch go original, 18 batch go fake
+            elif fp == 5:
+               evaluation_error, evaluation_accuracy, error_dict, error_data = fake_adopt_5_before(batch,
+                                                                                                   learner,
+                                                                                                   loss,
+                                                                                                   adaptation_steps,
+                                                                                                   shots,
+                                                                                                   ways,
+                                                                                                   device,
+                                                                                                   error_dict,
+                                                                                                   error_data,
+                                                                                                   task, iteration,
+                                                                                                   split_meta_batch_size)
+               if task < split_meta_batch_size:
+                  evaluation_error.backward()
 
+            # each iteration, 18 batch go original, 18 batch go fake
+            # but not dynamic change
+            elif fp == 6:
+               evaluation_error, evaluation_accuracy, error_dict, error_data = fake_adopt_6_before(batch,
+                                                                                                   learner,
+                                                                                                   loss,
+                                                                                                   adaptation_steps,
+                                                                                                   shots,
+                                                                                                   ways,
+                                                                                                   device,
+                                                                                                   error_dict,
+                                                                                                   error_data,
+                                                                                                   task, iteration,
+                                                                                                   split_meta_batch_size)
+               if task < split_meta_batch_size:
+                  evaluation_error.backward()
+                  
+            ###08.10 Professor' lab meeting : => query class =support class
+            # fake라 하더라도 구성은 똑같아야 한다.
+            elif fp == 7:
+               evaluation_error, evaluation_accuracy, error_dict, error_data = fake_adopt_7_before(batch,
+                                                                                                   learner,
+                                                                                                   loss,
+                                                                                                   adaptation_steps,
+                                                                                                   shots,
+                                                                                                   ways,
+                                                                                                   device,
+                                                                                                   error_dict,
+                                                                                                   error_data,
+                                                                                                   task, iteration,
+                                                                                                   split_meta_batch_size)
+               if task < split_meta_batch_size:
+                  evaluation_error.backward()
+                  
+            ###08.10 Professor' lab meeting : => query class =support class
+            # fake라 하더라도 구성은 똑같아야 한다.
+            elif fp == 8:
+               if task < split_meta_batch_size:
+                  evaluation_error, evaluation_accuracy, error_dict, error_data = fake_adopt_8_before(batch,
+                                                                                                      learner,
+                                                                                                      loss,
+                                                                                                      adaptation_steps,
+                                                                                                      shots,
+                                                                                                      ways,
+                                                                                                      device,
+                                                                                                      error_dict,
+                                                                                                      error_data,
+                                                                                                      task, iteration,
+                                                                                                      split_meta_batch_size)
+                  evaluation_error.backward()
+               else:
+                  evaluation_error = torch.tensor([0])
+                  evaluation_accuracy = torch.tensor([0])
+
+
+            ###08.11 Professor' lab meeting(공동)
+            # [1] 비복원추출 : 같은 class를 다르다고 말하지 않도록
+            # [2] support grad / query loss : index가 같도록
+            elif fp == 9:
+               evaluation_error, evaluation_accuracy, error_dict, error_data = fake_adopt_9_before(batch,
+                                                                                                   learner,
+                                                                                                   loss,
+                                                                                                   adaptation_steps,
+                                                                                                   shots,
+                                                                                                   ways,
+                                                                                                   device,
+                                                                                                   error_dict,
+                                                                                                   error_data,
+                                                                                                   task, iteration,
+                                                                                                   split_meta_batch_size)
+               if task < split_meta_batch_size:
+                  evaluation_error.backward()
+
+            ###08.10 Professor' lab meeting : => query class =support class
+            # fake라 하더라도 구성은 똑같아야 한다.
+            #디버깅상 오류가 있었네!
             
+            elif fp == 10:
+               if task < split_meta_batch_size:
+                  evaluation_error, evaluation_accuracy, error_dict, error_data = fake_adopt_10_before(batch,
+                                                                                                      learner,
+                                                                                                      loss,
+                                                                                                      adaptation_steps,
+                                                                                                      shots,
+                                                                                                      ways,
+                                                                                                      device,
+                                                                                                      error_dict,
+                                                                                                      error_data,
+                                                                                                      task, iteration,
+                                                                                                      split_meta_batch_size)
+                  evaluation_error.backward()
+               else:
+                  evaluation_error = torch.tensor([0])
+                  evaluation_accuracy = torch.tensor([0])
+
+            elif fp == 11:
+               evaluation_error, evaluation_accuracy, error_dict, error_data = fake_adopt_11_before(batch,
+                                                                                                   learner,
+                                                                                                   loss,
+                                                                                                   adaptation_steps,
+                                                                                                   shots,
+                                                                                                   ways,
+                                                                                                   device,
+                                                                                                   error_dict,
+                                                                                                   error_data,
+                                                                                                   task, iteration,
+                                                                                                   split_meta_batch_size)
+               if task < split_meta_batch_size:
+                  evaluation_error.backward()
+
+
             # outer update가 이부분인듯?
             #evaluation_error.backward()
             meta_train_error += evaluation_error.item()
@@ -369,11 +499,12 @@ def maml_exp(ways=5,
         # Average the accumulated gradients and optimize
 
         print("fp :",fp)
-        print("fp in [0,2] :",fp in [0,2])
+
         if fp in [0,2]:
             for p in maml.parameters():
                 p.grad.data.mul_(1.0 / meta_batch_size)
             opt.step()  # 여기서 maml 파라미터 업데이트가 일어난다.
+            
         elif fp == 1 :
            all_grad = []
            for g_list in error_dict.values():
@@ -383,13 +514,13 @@ def maml_exp(ways=5,
               learner = maml.clone()
               fake_grads = random.choices(all_grad,k=5 )
               
-              evaluation_error = fake_adopt_now( learner, fake_grads,loss, error_data, task)
+              evaluation_error = fake_adopt_1_now( learner, fake_grads,loss, error_data, task)
               evaluation_error.backward() #이게 제대로 되는 것인지가 좀 애매하네....
    
-              print("Fake batch - outer loss done")
-              for p in maml.parameters():
-                 p.grad.data.mul_(1.0 / meta_batch_size)
-              opt.step()
+  
+           for p in maml.parameters():
+              p.grad.data.mul_(1.0 / meta_batch_size)
+           opt.step()
         elif fp == 3:
            if iteration % 49 == 0:
               all_grad = [] #사실 all_updates
@@ -403,9 +534,9 @@ def maml_exp(ways=5,
                  evaluation_error.backward()  # 이게 제대로 되는 것인지가 좀 애매하네....
    
                  #print("Fake batch - outer loss done")
-                 for p in maml.parameters():
-                    p.grad.data.mul_(1.0 / meta_batch_size)
-                 opt.step()
+              for p in maml.parameters():
+                 p.grad.data.mul_(1.0 / meta_batch_size)
+              opt.step()
            else:
               for p in maml.parameters():
                  p.grad.data.mul_(1.0 / meta_batch_size)
@@ -424,17 +555,220 @@ def maml_exp(ways=5,
                  evaluation_error = fake_adopt_4_now(learner, fake_grads, loss, error_data, task)
                  evaluation_error.backward()  # 이게 제대로 되는 것인지가 좀 애매하네....
 
-                 # print("Fake batch - outer loss done")
-                 for p in maml.parameters():
-                    p.grad.data.mul_(1.0 / meta_batch_size)
-                 opt.step()
+              # print("Fake batch - outer loss done")
+              for p in maml.parameters():
+                 p.grad.data.mul_(1.0 / meta_batch_size)
+              opt.step()
            else:
               for p in maml.parameters():
                  p.grad.data.mul_(1.0 / meta_batch_size)
               opt.step()  # 여기서 maml 파라미터 업데이트가 일어난다.
-           
-           
 
+        elif fp == 5:
+           all_grad = []  # 사실 all_updates
+           for g_list in error_dict.values():
+              all_grad.extend(g_list)
+           for task in range(split_meta_batch_size,meta_batch_size):
+              learner = maml.clone()
+              fake_grads = random.choices(all_grad, k=5)  # 5 updates
+      
+              evaluation_error = fake_adopt_5_now(learner, fake_grads, loss, error_data, task)
+              evaluation_error.backward()  # 이게 제대로 되는 것인지가 좀 애매하네....
+      
+              # print("Fake batch - outer loss done")
+           for p in maml.parameters():
+              p.grad.data.mul_(1.0 / meta_batch_size)
+           opt.step()
+
+
+        elif fp == 6:
+           all_grad = []  # 사실 all_updates
+           for g_list in error_dict.values():
+              all_grad.extend(g_list)
+           for task in range(split_meta_batch_size,meta_batch_size):
+              learner = maml.clone()
+              original_grads = error_dict[task]
+              fake_grads = random.choices(all_grad, k=2)  # only 2 updates
+              original_grads[3:] = fake_grads
+      
+              evaluation_error = fake_adopt_6_now(learner, original_grads, loss, error_data, task)
+              evaluation_error.backward()  # 이게 제대로 되는 것인지가 좀 애매하네....
+      
+              # print("Fake batch - outer loss done")
+           for p in maml.parameters():
+              p.grad.data.mul_(1.0 / meta_batch_size)
+           opt.step()
+
+
+        elif fp == 7:
+           all_grad = []  # 사실 all_updates
+           for g_list in error_dict.values():
+              all_grad.extend(g_list)
+           #제대로 되었는지 확인
+           assert len(all_grad) == ways * split_meta_batch_size
+           for task in range(split_meta_batch_size, meta_batch_size):
+              learner = maml.clone()
+              #original_grads = error_dict[task]
+              
+              fake_grads_index = random.choices(range(len(all_grad)), k=5)  # only 2 updates
+              fake_grads = [all_grad[idx] for idx in fake_grads_index]
+              label_index = [f % 5 for f in fake_grads_index]  # label index
+              client_index = [(f // 5)+split_meta_batch_size for f in fake_grads_index]  # client index
+      
+              evaluation_error = fake_adopt_7_now(learner,fake_grads,  loss, error_data, task,label_index,client_index )
+              evaluation_error.backward()  # 이게 제대로 되는 것인지가 좀 애매하네....
+ 
+         
+      
+              # print("Fake batch - outer loss done")
+           for p in maml.parameters():
+              p.grad.data.mul_(1.0 / meta_batch_size)
+           opt.step()
+
+        elif fp == 8:
+           all_grad = []  # 사실 all_updates
+           for g_list in error_dict.values():
+              all_grad.extend(g_list)
+           # 제대로 되었는지 확인
+           assert len(all_grad) == ways * split_meta_batch_size
+           for task in range(split_meta_batch_size, meta_batch_size):
+              learner = maml.clone()
+              # original_grads = error_dict[task]
+      
+              fake_grads_index = random.choices(range(len(all_grad)), k=5)  # only 2 updates
+              fake_grads = [all_grad[idx] for idx in fake_grads_index]
+              label_index = [f % 5 for f in fake_grads_index]  # label index
+              client_index = [(f // 5)  for f in fake_grads_index]  # client index
+      
+              evaluation_error = fake_adopt_8_now(learner, fake_grads, loss, error_data, task, label_index,
+                                                  client_index)
+              evaluation_error.backward()  # 이게 제대로 되는 것인지가 좀 애매하네....
+      
+              # print("Fake batch - outer loss done")
+           for p in maml.parameters():
+              p.grad.data.mul_(1.0 / meta_batch_size)
+           opt.step()
+
+#############08.11.
+        # 리스트에 담는 방식으로 , 없으면 추가하도록
+        # 추가하는 순서는 0,1,2,3,4 => 이건 고정시켜도 될듯
+
+        elif fp == 9:
+           all_grad = []  # 사실 all_updates
+           for g_list in error_dict.values():
+              all_grad.extend(g_list)
+           # 제대로 되었는지 확인
+           assert len(all_grad) == ways * split_meta_batch_size
+           for task in range(split_meta_batch_size, meta_batch_size):
+              learner = maml.clone()
+              # original_grads = error_dict[task]
+              fake_grads =[]
+              dis_grads =[]
+              fake_grads_index = []
+              for meta_label in range(ways):
+                 while len(fake_grads) != (meta_label+1):
+                    index = random.choice([ (i*ways + meta_label) for i in range(split_meta_batch_size) ])
+                    #index = 1
+                    fake_grad = all_grad[index]
+                    head_grad = fake_grad[-1]
+                    if any([(head_grad == dis_).all() for dis_ in dis_grads]):
+                       continue
+                    else:
+                       dis_grads.append(head_grad)
+                       fake_grads.append(fake_grad)
+                       fake_grads_index.append(index)
+                       
+              assert len(fake_grads) == ways
+              assert len(fake_grads_index) == ways
+      
+              label_index = [f % 5 for f in fake_grads_index]  # label index
+              assert len(set(label_index)) == ways
+              client_index = [(f // 5) + split_meta_batch_size for f in fake_grads_index]  # client index
+      
+              evaluation_error = fake_adopt_9_now(learner, fake_grads, loss, error_data, task, label_index,
+                                                  client_index)
+              evaluation_error.backward()  # 이게 제대로 되는 것인지가 좀 애매하네....
+      
+              # print("Fake batch - outer loss done")
+           for p in maml.parameters():
+              p.grad.data.mul_(1.0 / meta_batch_size)
+           opt.step()
+
+        elif fp == 10:
+           all_grad = []  # 사실 all_updates
+           for g_list in error_dict.values():
+              all_grad.extend(g_list)
+           # 제대로 되었는지 확인
+           assert len(all_grad) == ways * split_meta_batch_size
+           for task in range(split_meta_batch_size, meta_batch_size):
+              learner = maml.clone()
+              # original_grads = error_dict[task]
+              fake_grads = []
+              dis_grads = []
+              fake_grads_index = []
+              for meta_label in range(ways):
+                 while len(fake_grads) != (meta_label + 1):
+                    index = random.choice([(i * ways + meta_label) for i in range(split_meta_batch_size)])
+                    # index = 1
+                    fake_grad = all_grad[index]
+                    head_grad = fake_grad[-1]
+                    if any([(head_grad == dis_).all() for dis_ in dis_grads]):
+                       continue
+                    else:
+                       dis_grads.append(head_grad)
+                       fake_grads.append(fake_grad)
+                       fake_grads_index.append(index)
+
+              assert len(fake_grads) == ways
+              assert len(fake_grads_index) == ways
+
+              label_index = [f % 5 for f in fake_grads_index]  # label index
+              assert len(set(label_index)) == ways #검증 0,1,2,3,4가 하나씩만 들어가야 되니까
+              client_index = [(f // 5) for f in fake_grads_index]  # client index
+      
+              evaluation_error = fake_adopt_10_now(learner, fake_grads, loss, error_data, task, label_index,
+                                                  client_index)
+              evaluation_error.backward()  # 이게 제대로 되는 것인지가 좀 애매하네....
+      
+              # print("Fake batch - outer loss done")
+           for p in maml.parameters():
+              p.grad.data.mul_(1.0 / meta_batch_size)
+           opt.step()
+
+           #############08.11.
+           # 리스트에 담는 방식으로 , 없으면 추가하도록
+           # 추가하는 순서는 0,1,2,3,4 => 이건 고정시켜도 될듯
+
+        elif fp == 11:
+           all_grad = []  # 사실 all_updates
+           for g_list in error_dict.values():
+              all_grad.extend(g_list)
+           # 제대로 되었는지 확인
+           assert len(all_grad) == ways * split_meta_batch_size
+           for task in range(split_meta_batch_size, meta_batch_size):
+              task_order = task - split_meta_batch_size
+              learner = maml.clone()
+              # original_grads = error_dict[task]
+              fake_grads = all_grad[task_order*5:task_order*5+5]
+
+              fake_grads_index = list(range(task_order*5,task_order*5+5))
+   
+   
+              assert len(fake_grads) == ways
+              assert len(fake_grads_index) == ways
+   
+              label_index = [f % 5 for f in fake_grads_index]  # label index
+              assert len(set(label_index)) == ways
+              client_index = [(f // 5) + split_meta_batch_size for f in fake_grads_index]  # client index
+   
+              evaluation_error = fake_adopt_11_now(learner, fake_grads, loss, error_data, task, label_index,
+                                                  client_index)
+              evaluation_error.backward()  # 이게 제대로 되는 것인지가 좀 애매하네....
+   
+              # print("Fake batch - outer loss done")
+           for p in maml.parameters():
+              p.grad.data.mul_(1.0 / meta_batch_size)
+           opt.step()
         '''
         meta_valid_error = 0.0
         meta_valid_accuracy = 0.0
@@ -473,7 +807,7 @@ def maml_exp(ways=5,
             #valid_accuracy_best = valid_accuracy_mean
             
             #if (valid_accuracy_best > best_accuracy) and (valid_accuracy_best < 1):
-            if (valid_error_mean > best_loss):
+            if (valid_error_mean < best_loss):
                 #best_accuracy = valid_accuracy_best
                 best_loss = valid_error_mean
                 best_learner = maml.clone()
@@ -541,8 +875,8 @@ def maml_exp(ways=5,
 
     terminate_time = timeit.default_timer()  # 종료 시간 체크
     result["time"] = (terminate_time - start_time)
-    with gzip.open(log_dir + '/{}_{}_client{}_scope{}_fraction{}_{}_fp{}.pickle'.format(exp_name, method, meta_batch_size_client,
-                                                                           str(scope),str(fraction), data,fp), 'wb') as f:
+    with gzip.open(log_dir + '/{}_{}_client{}_scope{}_fraction{}_fp{}_{}_shot{}.pickle'.format(exp_name, method, meta_batch_size_client,
+                                                                           str(scope),str(fraction), fp,data,shots), 'wb') as f:
         pickle.dump(result, f)
 
     terminate_time = timeit.default_timer()  # 종료 시간 체크
